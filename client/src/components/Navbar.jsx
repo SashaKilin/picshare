@@ -14,6 +14,7 @@ export function Navbar({
   onOpenAuth, 
   onOpenSearch, 
   onOpenRequests, 
+  onOpenProfile,
   requestsCount = 0,
   activeView, 
   setActiveView 
@@ -98,16 +99,27 @@ export function Navbar({
 
             {/* Профиль пользователя */}
             <div className="flex items-center gap-1.5 sm:gap-2.5 pl-1 sm:pl-2 border-l border-slate-800">
-              <img
-                src={user?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.username}`}
-                alt={user?.username}
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-indigo-500/40 object-cover bg-slate-800 shrink-0"
-              />
-              <div className="hidden xl:block text-left">
-                <div className="text-xs font-semibold text-slate-200 leading-tight">
-                  {user?.username}
+              <button
+                onClick={() => onOpenProfile && onOpenProfile(user?.id)}
+                className="flex items-center gap-2 hover:opacity-85 transition group text-left cursor-pointer p-1 rounded-xl hover:bg-slate-800/50"
+                title="Мой профиль"
+              >
+                <img
+                  src={user?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.username}`}
+                  alt={user?.username}
+                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-indigo-500/40 object-cover bg-slate-800 shrink-0 group-hover:border-indigo-400"
+                />
+                <div className="hidden xl:block text-left">
+                  <div className="text-xs font-semibold text-slate-200 leading-tight group-hover:text-indigo-300">
+                    {user?.username}
+                  </div>
+                  {user?.badge && (
+                    <div className="text-[10px] text-indigo-400 truncate max-w-[100px]">
+                      {user.badge}
+                    </div>
+                  )}
                 </div>
-              </div>
+              </button>
 
               {/* Кнопка выхода */}
               <button

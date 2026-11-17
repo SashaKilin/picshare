@@ -14,7 +14,9 @@ import {
   UserMinus,
   ArrowLeft,
   Camera,
-  ArrowDown
+  ArrowDown,
+  User,
+  Reply
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -38,11 +40,103 @@ function formatMessageDate(dateStr) {
   });
 }
 
+// Компонент для свайпа сообщения влево (как в Telegram)
+function SwipeableMessage({ onReply, children, isMe }) {
+  const [offsetX, setOffsetX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const touchStartRef = useRef({ x: 0, y: 0 });
+  const hasTriggeredHapticRef = useRef(false);
+
+  const handleTouchStart = (e) => {
+    if (e.touches.length !== 1) return;
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+    hasTriggeredHapticRef.current = false;
+    setIsSwiping(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isSwiping || e.touches.length !== 1) return;
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const deltaX = currentX - touchStartRef.current.x;
+    const deltaY = currentY - touchStartRef.current.y;
+
+    // Если преобладает вертикальная прокрутка страницы, не перехватываем
+    if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(offsetX) < 10) {
+      return;
+    }
+
+    // Свайп влево
+    if (deltaX < 0) {
+      const clamped = Math.max(-65, deltaX * 0.65);
+      setOffsetX(clamped);
+
+      if (clamped <= -38 && !hasTriggeredHapticRef.current) {
+        hasTriggeredHapticRef.current = true;
+        if (navigator.vibrate) {
+          try { navigator.vibrate(15); } catch (err) {}
+        }
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isSwiping) return;
+    setIsSwiping(false);
+    if (offsetX <= -38) {
+      onReply && onReply();
+    }
+    setOffsetX(0);
+  };
+
+  const replyOpacity = Math.min(1, Math.abs(offsetX) / 38);
+  const replyScale = Math.min(1, Math.abs(offsetX) / 32);
+
+  return (
+    <div 
+      className="relative w-full flex select-none touch-pan-y"
+      style={{ justifyContent: isMe ? 'flex-end' : 'flex-start' }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
+      <div 
+        className="w-full flex"
+        style={{
+          justifyContent: isMe ? 'flex-end' : 'flex-start',
+          transform: `translateX(${offsetX}px)`,
+          transition: isSwiping ? 'none' : 'transform 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28)'
+        }}
+      >
+        {children}
+      </div>
+
+      {/* Индикатор ответа при свайпе */}
+      {offsetX < -8 && (
+        <div 
+          className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600 text-white shadow-lg pointer-events-none z-10"
+          style={{
+            opacity: replyOpacity,
+            transform: `translateY(-50%) scale(${replyScale})`
+          }}
+        >
+          <Reply className="w-4 h-4" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ImageChat({
   friend,
   onFriendRemoved,
   onOpenLightbox,
   onBack,
+  onOpenProfile,
 }) {
   const { user } = useAuth();
   const { socket, onlineUsers, markAsRead, setActiveFriendId } = useSocket();
@@ -64,7 +158,12 @@ export function ImageChat({
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const [reactions, setReactions] = useState({});
 
+  // Ответ на сообщение (Reply)
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+
   const fileInputRef = useRef(null);
+  const captionInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   const latestImageIdRef = useRef(0);
@@ -291,11 +390,15 @@ export function ImageChat({
     if (hasText) {
       formData.append('caption', caption.trim());
     }
+    if (replyingTo) {
+      formData.append('replyToId', replyingTo.id);
+    }
 
     try {
       const res = await api.sendImage(formData);
       clearSelectedFile();
       setCaption('');
+      setReplyingTo(null);
 
       if (res.image) {
         setImages((prev) => {
@@ -312,6 +415,32 @@ export function ImageChat({
       setError(err.message || 'Не удалось отправить сообщение');
     } finally {
       setSending(false);
+    }
+  }
+
+  function handleStartReply(img) {
+    const senderName = img.sender_username || (Number(img.sender_id) === Number(user.id) ? user.username : friend.username);
+    setReplyingTo({
+      id: img.id,
+      sender_id: img.sender_id,
+      sender_username: senderName,
+      caption: img.caption || '',
+      file_url: img.file_url || ''
+    });
+    setTimeout(() => {
+      captionInputRef.current?.focus();
+    }, 60);
+  }
+
+  function scrollToMessage(messageId) {
+    if (!messageId) return;
+    const element = document.getElementById(`msg-${messageId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(messageId);
+      setTimeout(() => {
+        setHighlightedMessageId((curr) => (curr === messageId ? null : curr));
+      }, 2000);
     }
   }
 
@@ -377,27 +506,33 @@ export function ImageChat({
             </button>
           )}
 
-          <div className="relative shrink-0">
-            <img
-              src={friend?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${friend?.username}`}
-              alt={friend?.username}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-700 object-cover bg-slate-800"
-            />
-            <span
-              className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
-                isOnline ? 'bg-emerald-500' : 'bg-slate-600'
-              }`}
-            />
-          </div>
-
-          <div className="min-w-0">
-            <div className="font-bold text-sm text-slate-100 flex items-center gap-2 truncate">
-              <span className="truncate">{friend?.username}</span>
+          <div 
+            onClick={() => onOpenProfile && onOpenProfile(friend?.id)}
+            className="flex items-center gap-2.5 sm:gap-3 min-w-0 cursor-pointer hover:opacity-85 transition group"
+            title="Открыть профиль пользователя"
+          >
+            <div className="relative shrink-0">
+              <img
+                src={friend?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${friend?.username}`}
+                alt={friend?.username}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-700 object-cover bg-slate-800 group-hover:border-indigo-400"
+              />
+              <span
+                className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
+                  isOnline ? 'bg-emerald-500' : 'bg-slate-600'
+                }`}
+              />
             </div>
-            <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
-              <span>{isOnline ? 'В сети' : 'Не в сети'}</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-indigo-400/80">Чат и фото</span>
+
+            <div className="min-w-0">
+              <div className="font-bold text-sm text-slate-100 flex items-center gap-2 truncate">
+                <span className="truncate group-hover:text-indigo-300">{friend?.username}</span>
+              </div>
+              <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
+                <span>{isOnline ? 'В сети' : 'Не в сети'}</span>
+                <span className="text-slate-600">•</span>
+                <span className="text-indigo-400/80">Профиль и фото</span>
+              </div>
             </div>
           </div>
         </div>
@@ -413,6 +548,16 @@ export function ImageChat({
 
           {showMenu && (
             <div className="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl p-1 z-30">
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  onOpenProfile && onOpenProfile(friend.id);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl transition mb-1"
+              >
+                <User className="w-4 h-4 text-indigo-400" />
+                <span>Профиль</span>
+              </button>
               <button
                 onClick={() => {
                   setShowMenu(false);
@@ -488,7 +633,10 @@ export function ImageChat({
                 </div>
               )}
 
-              <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group animate-fadeIn w-full`}>
+              <div 
+                id={`msg-${img.id}`}
+                className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group animate-fadeIn w-full`}
+              >
                 
                 <div className="flex items-center gap-1.5 mb-1 px-1">
                   <span className="text-[11px] sm:text-xs font-semibold text-slate-400">
@@ -499,133 +647,216 @@ export function ImageChat({
                   </span>
                 </div>
 
-                {/* ВАРИАНТ 1: Карточка с изображением (+ опциональная подпись) */}
-                {hasImage ? (
-                  <div className="relative w-full max-w-[85%] sm:max-w-md rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-xl transition-all">
-                    
-                    <div 
-                      className="cursor-pointer overflow-hidden bg-slate-950 max-h-[350px] sm:max-h-[420px] flex items-center justify-center relative active:opacity-90"
-                      onClick={() => onOpenLightbox(img)}
-                    >
-                      <img
-                        src={img.file_url}
-                        alt={img.original_name || 'Фотография'}
-                        className="w-full h-auto max-h-[350px] sm:max-h-[420px] object-cover"
-                        loading="lazy"
-                      />
-
-                      {activeReaction && (
-                        <span className="absolute bottom-2 right-2 text-base bg-slate-900/90 border border-slate-700/80 px-2 py-0.5 rounded-full shadow-lg animate-bounce-short">
-                          {activeReaction}
-                        </span>
+                <SwipeableMessage onReply={() => handleStartReply(img)} isMe={isMe}>
+                  {/* ВАРИАНТ 1: Карточка с изображением (+ опциональная подпись) */}
+                  {hasImage ? (
+                    <div className={`relative w-full max-w-[85%] sm:max-w-md rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-xl transition-all ${
+                      highlightedMessageId === img.id ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-950 shadow-indigo-500/50 shadow-lg scale-[1.01]' : ''
+                    }`}>
+                      
+                      {/* Цитата ответа на предыдущее сообщение (если есть) */}
+                      {img.reply_to && (
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            scrollToMessage(img.reply_to.id);
+                          }}
+                          className="m-2 p-2 rounded-xl bg-slate-950/70 hover:bg-slate-950 border-l-3 border-indigo-400 flex items-center gap-2 cursor-pointer transition select-none group/quote"
+                          title="Перейти к цитируемому сообщению"
+                        >
+                          {img.reply_to.file_url && (
+                            <img 
+                              src={img.reply_to.file_url} 
+                              alt="quote thumbnail" 
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover shrink-0 border border-slate-800" 
+                            />
+                          )}
+                          <div className="min-w-0 flex-1 text-left">
+                            <div className="text-[11px] font-bold text-indigo-300 group-hover/quote:underline truncate">
+                              {img.reply_to.username || 'Пользователь'}
+                            </div>
+                            <div className="text-[10px] text-slate-300 truncate">
+                              {img.reply_to.caption || (img.reply_to.file_url ? '📷 Фотография' : 'Сообщение')}
+                            </div>
+                          </div>
+                        </div>
                       )}
-                    </div>
 
-                    {img.caption && (
-                      <div className="p-2.5 sm:p-3 bg-slate-900/95 border-t border-slate-800 text-xs sm:text-sm text-slate-200 break-words">
-                        {img.caption}
-                      </div>
-                    )}
+                      <div 
+                        className="cursor-pointer overflow-hidden bg-slate-950 max-h-[350px] sm:max-h-[420px] flex items-center justify-center relative active:opacity-90"
+                        onClick={() => onOpenLightbox(img)}
+                      >
+                        <img
+                          src={img.file_url}
+                          alt={img.original_name || 'Фотография'}
+                          className="w-full h-auto max-h-[350px] sm:max-h-[420px] object-cover"
+                          loading="lazy"
+                        />
 
-                    <div className="px-2.5 sm:px-3 py-1.5 bg-slate-900/90 border-t border-slate-800/60 flex items-center justify-between text-slate-400 text-xs">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleAddReaction(img.id, '❤️')}
-                          className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '❤️' ? 'bg-rose-500/20 text-rose-400' : 'text-slate-400 hover:text-rose-400'}`}
-                          title="Нравится"
-                        >
-                          ❤️
-                        </button>
-                        <button
-                          onClick={() => handleAddReaction(img.id, '🔥')}
-                          className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '🔥' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`}
-                          title="Огонь"
-                        >
-                          🔥
-                        </button>
-                        <button
-                          onClick={() => handleAddReaction(img.id, '😂')}
-                          className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '😂' ? 'bg-yellow-500/20 text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
-                          title="Смешно"
-                        >
-                          😂
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <a
-                          href={img.file_url}
-                          download={img.original_name || 'image'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1.5 rounded-lg hover:text-white hover:bg-slate-800 transition touch-manipulation"
-                          title="Скачать оригинал"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </a>
-
-                        {isMe && (
-                          <button
-                            onClick={() => handleDeleteImage(img.id)}
-                            className="p-1.5 rounded-lg hover:text-rose-400 hover:bg-rose-500/10 transition touch-manipulation"
-                            title="Удалить"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                  </div>
-                ) : (
-                  /* ВАРИАНТ 2: Обычное текстовое сообщение */
-                  <div className={`relative max-w-[85%] sm:max-w-md p-3.5 rounded-2xl shadow-md transition-all ${
-                    isMe
-                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-tr-xs'
-                      : 'bg-slate-800 text-slate-100 rounded-tl-xs border border-slate-700/60'
-                  }`}>
-                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap select-text">
-                      {img.caption}
-                    </p>
-
-                    {/* Подвал текстового сообщения */}
-                    <div className="mt-2 flex items-center justify-between gap-3 pt-1 border-t border-white/10 text-[11px] text-white/70">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleAddReaction(img.id, '❤️')}
-                          className="hover:scale-125 transition transform"
-                        >
-                          ❤️
-                        </button>
-                        <button
-                          onClick={() => handleAddReaction(img.id, '🔥')}
-                          className="hover:scale-125 transition transform"
-                        >
-                          🔥
-                        </button>
-                        <button
-                          onClick={() => handleAddReaction(img.id, '👍')}
-                          className="hover:scale-125 transition transform"
-                        >
-                          👍
-                        </button>
                         {activeReaction && (
-                          <span className="ml-1 text-xs">{activeReaction}</span>
+                          <span className="absolute bottom-2 right-2 text-base bg-slate-900/90 border border-slate-700/80 px-2 py-0.5 rounded-full shadow-lg animate-bounce-short">
+                            {activeReaction}
+                          </span>
                         )}
                       </div>
 
-                      {isMe && (
-                        <button
-                          onClick={() => handleDeleteImage(img.id)}
-                          className="text-white/60 hover:text-rose-300 transition"
-                          title="Удалить сообщение"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                      {img.caption && (
+                        <div className="p-2.5 sm:p-3 bg-slate-900/95 border-t border-slate-800 text-xs sm:text-sm text-slate-200 break-words">
+                          {img.caption}
+                        </div>
                       )}
+
+                      <div className="px-2.5 sm:px-3 py-1.5 bg-slate-900/90 border-t border-slate-800/60 flex items-center justify-between text-slate-400 text-xs">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleAddReaction(img.id, '❤️')}
+                            className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '❤️' ? 'bg-rose-500/20 text-rose-400' : 'text-slate-400 hover:text-rose-400'}`}
+                            title="Нравится"
+                          >
+                            ❤️
+                          </button>
+                          <button
+                            onClick={() => handleAddReaction(img.id, '🔥')}
+                            className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '🔥' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`}
+                            title="Огонь"
+                          >
+                            🔥
+                          </button>
+                          <button
+                            onClick={() => handleAddReaction(img.id, '😂')}
+                            className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '😂' ? 'bg-yellow-500/20 text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
+                            title="Смешно"
+                          >
+                            😂
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {/* Кнопка ответа на сообщение */}
+                          <button
+                            onClick={() => handleStartReply(img)}
+                            className="p-1.5 rounded-lg hover:text-indigo-300 hover:bg-slate-800 transition touch-manipulation"
+                            title="Ответить"
+                          >
+                            <Reply className="w-3.5 h-3.5" />
+                          </button>
+
+                          <a
+                            href={img.file_url}
+                            download={img.original_name || 'image'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 rounded-lg hover:text-white hover:bg-slate-800 transition touch-manipulation"
+                            title="Скачать оригинал"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+
+                          {isMe && (
+                            <button
+                              onClick={() => handleDeleteImage(img.id)}
+                              className="p-1.5 rounded-lg hover:text-rose-400 hover:bg-rose-500/10 transition touch-manipulation"
+                              title="Удалить"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    /* ВАРИАНТ 2: Обычное текстовое сообщение */
+                    <div className={`relative max-w-[85%] sm:max-w-md p-3 sm:p-3.5 rounded-2xl shadow-md transition-all ${
+                      highlightedMessageId === img.id ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-950 shadow-indigo-500/50 shadow-lg scale-[1.01]' : ''
+                    } ${
+                      isMe
+                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-tr-xs'
+                        : 'bg-slate-800 text-slate-100 rounded-tl-xs border border-slate-700/60'
+                    }`}>
+                      
+                      {/* Цитата ответа на предыдущее сообщение (если есть) */}
+                      {img.reply_to && (
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            scrollToMessage(img.reply_to.id);
+                          }}
+                          className="mb-2 p-2 rounded-xl bg-black/25 hover:bg-black/40 border-l-3 border-indigo-300 flex items-center gap-2 cursor-pointer transition select-none group/quote"
+                          title="Перейти к цитируемому сообщению"
+                        >
+                          {img.reply_to.file_url && (
+                            <img 
+                              src={img.reply_to.file_url} 
+                              alt="quote thumbnail" 
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover shrink-0 border border-white/10" 
+                            />
+                          )}
+                          <div className="min-w-0 flex-1 text-left">
+                            <div className="text-[11px] font-bold text-indigo-200 group-hover/quote:underline truncate">
+                              {img.reply_to.username || 'Пользователь'}
+                            </div>
+                            <div className="text-[10px] text-white/80 truncate">
+                              {img.reply_to.caption || (img.reply_to.file_url ? '📷 Фотография' : 'Сообщение')}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap select-text">
+                        {img.caption}
+                      </p>
+
+                      {/* Подвал текстового сообщения */}
+                      <div className="mt-2 flex items-center justify-between gap-3 pt-1 border-t border-white/10 text-[11px] text-white/70">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleAddReaction(img.id, '❤️')}
+                            className="hover:scale-125 transition transform"
+                          >
+                            ❤️
+                          </button>
+                          <button
+                            onClick={() => handleAddReaction(img.id, '🔥')}
+                            className="hover:scale-125 transition transform"
+                          >
+                            🔥
+                          </button>
+                          <button
+                            onClick={() => handleAddReaction(img.id, '👍')}
+                            className="hover:scale-125 transition transform"
+                          >
+                            👍
+                          </button>
+                          {activeReaction && (
+                            <span className="ml-1 text-xs">{activeReaction}</span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {/* Кнопка ответа на сообщение */}
+                          <button
+                            onClick={() => handleStartReply(img)}
+                            className="text-white/70 hover:text-white transition p-0.5"
+                            title="Ответить"
+                          >
+                            <Reply className="w-3 h-3" />
+                          </button>
+
+                          {isMe && (
+                            <button
+                              onClick={() => handleDeleteImage(img.id)}
+                              className="text-white/60 hover:text-rose-300 transition p-0.5"
+                              title="Удалить сообщение"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </SwipeableMessage>
 
               </div>
             </React.Fragment>
@@ -669,6 +900,42 @@ export function ImageChat({
         </div>
       )}
 
+      {/* Плашка ответа на сообщение (как в Telegram) */}
+      {replyingTo && (
+        <div className="px-3 sm:px-4 py-2 bg-slate-900 border-t border-indigo-500/30 flex items-center justify-between gap-3 shrink-0 animate-fadeIn">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-1 self-stretch bg-indigo-500 rounded-full shrink-0" />
+            <Reply className="w-4 h-4 text-indigo-400 shrink-0" />
+
+            {replyingTo.file_url && (
+              <img 
+                src={replyingTo.file_url} 
+                alt="reply thumbnail" 
+                className="w-8 h-8 rounded-lg object-cover shrink-0 border border-slate-700" 
+              />
+            )}
+
+            <div className="min-w-0 text-left">
+              <div className="text-xs font-bold text-indigo-300 truncate">
+                Ответ для @{replyingTo.sender_username}
+              </div>
+              <div className="text-[11px] text-slate-400 truncate max-w-xs sm:max-w-md">
+                {replyingTo.caption || (replyingTo.file_url ? '📷 Фотография' : 'Сообщение')}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setReplyingTo(null)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition shrink-0 active:scale-95 touch-manipulation"
+            title="Отменить ответ"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* 3. Панель ввода и отправки */}
       <form 
         onSubmit={handleSendImage}
@@ -696,9 +963,16 @@ export function ImageChat({
         <div className="flex-1 relative">
           <input
             type="text"
+            ref={captionInputRef}
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
-            placeholder={selectedFile ? 'Добавьте подпись к фото...' : 'Напишите сообщение...'}
+            placeholder={
+              replyingTo
+                ? `Ответ для @${replyingTo.sender_username}...`
+                : selectedFile
+                ? 'Добавьте подпись к фото...'
+                : 'Напишите сообщение...'
+            }
             className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3.5 py-2 text-base sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition"
           />
         </div>

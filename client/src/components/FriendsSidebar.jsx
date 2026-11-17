@@ -7,6 +7,7 @@ export function FriendsSidebar({
   selectedFriend,
   onSelectFriend,
   onOpenSearch,
+  onOpenProfile,
   loading = false,
   className = '',
 }) {
@@ -104,7 +105,16 @@ export function FriendsSidebar({
                   : 'hover:bg-slate-800/60 border border-transparent text-slate-300'
               }`}
             >
-              <div className="relative shrink-0">
+              <div 
+                onClick={(e) => {
+                  if (onOpenProfile) {
+                    e.stopPropagation();
+                    onOpenProfile(friend.id);
+                  }
+                }}
+                className="relative shrink-0 cursor-pointer hover:opacity-80 transition"
+                title="Посмотреть профиль"
+              >
                 <img
                   src={friend.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${friend.username}`}
                   alt={friend.username}

@@ -12,6 +12,7 @@ const { JWT_SECRET } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const friendsRoutes = require('./routes/friends');
 const imagesRoutes = require('./routes/images');
+const usersRoutes = require('./routes/users');
 
 const app = express();
 const server = http.createServer(app);
@@ -89,6 +90,7 @@ io.on('connection', (socket) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/friends', friendsRoutes);
 app.use('/api/images', imagesRoutes);
+app.use('/api/users', usersRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

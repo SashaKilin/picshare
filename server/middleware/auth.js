@@ -12,7 +12,10 @@ async function requireAuth(req, res, next) {
   const token = authHeader.split(' ')[1];
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = await db.get('SELECT id, username, email, avatar, created_at FROM users WHERE id = ?', [payload.id]);
+    const user = await db.get(
+      'SELECT id, username, email, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
+      [payload.id]
+    );
 
     if (!user) {
       return res.status(401).json({ error: 'Пользователь не найден' });
@@ -34,7 +37,10 @@ async function optionalAuth(req, res, next) {
   const token = authHeader.split(' ')[1];
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = await db.get('SELECT id, username, email, avatar, created_at FROM users WHERE id = ?', [payload.id]);
+    const user = await db.get(
+      'SELECT id, username, email, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
+      [payload.id]
+    );
     if (user) {
       req.user = user;
     }

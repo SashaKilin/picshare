@@ -11,6 +11,8 @@ import { ImageChat } from './components/ImageChat';
 import { FeedView } from './components/FeedView';
 import { LightboxModal } from './components/LightboxModal';
 import { NotificationToast } from './components/NotificationToast';
+import { ProfileModal } from './components/ProfileModal';
+import { EditProfileModal } from './components/EditProfileModal';
 import { 
   Images, 
   UserPlus, 
@@ -36,6 +38,22 @@ function MainApp() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [profileUserId, setProfileUserId] = useState(null);
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+
+  // Прямое открытие профиля по ссылке #profile/username
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#profile/')) {
+        const username = decodeURIComponent(hash.replace('#profile/', ''));
+        if (username) setProfileUserId(username);
+      }
+    };
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
 
   // Гарантированный сброс скролла окна при переключении диалогов и видов
   useEffect(() => {
@@ -149,6 +167,7 @@ function MainApp() {
           onOpenAuth={() => setIsAuthOpen(true)}
           onOpenSearch={() => setIsSearchOpen(true)}
           onOpenRequests={() => setIsRequestsOpen(true)}
+          onOpenProfile={(id) => setProfileUserId(id)}
           requestsCount={requestsCount}
           activeView={activeView}
           setActiveView={setActiveView}
@@ -165,6 +184,7 @@ function MainApp() {
                 setActiveView('chat');
               }}
               onOpenLightbox={(img) => setLightboxImage(img)}
+              onOpenProfile={(id) => setProfileUserId(id)}
             />
           ) : (
             <>
@@ -174,6 +194,7 @@ function MainApp() {
                 selectedFriend={selectedFriend}
                 onSelectFriend={(friend) => setSelectedFriend(friend)}
                 onOpenSearch={() => setIsSearchOpen(true)}
+                onOpenProfile={(id) => setProfileUserId(id)}
                 loading={loadingFriends}
                 className={`${
                   selectedFriend ? 'hidden md:flex' : 'flex w-full'
@@ -187,6 +208,7 @@ function MainApp() {
                     friend={selectedFriend}
                     onFriendRemoved={handleFriendRemoved}
                     onOpenLightbox={(img) => setLightboxImage(img)}
+                    onOpenProfile={(id) => setProfileUserId(id)}
                     onBack={() => {
                       setSelectedFriend(null);
                       window.scrollTo(0, 0);
@@ -293,6 +315,7 @@ function MainApp() {
       <UserSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
+        onOpenProfile={(id) => setProfileUserId(id)}
         onSelectFriend={(friend) => {
           setSelectedFriend(friend);
           setActiveView('chat');
@@ -308,6 +331,34 @@ function MainApp() {
       <LightboxModal
         image={lightboxImage}
         onClose={() => setLightboxImage(null)}
+      />
+
+      {/* Просмотр публичного/своего профиля */}
+      <ProfileModal
+        isOpen={Boolean(profileUserId)}
+        onClose={() => {
+          setProfileUserId(null);
+          if (window.location.hash.startsWith('#profile/')) {
+            history.replaceState(null, '', ' ');
+          }
+        }}
+        userIdOrUsername={profileUserId}
+        onOpenEditProfile={() => setIsEditProfileOpen(true)}
+        onSelectFriend={(friend) => {
+          setSelectedFriend(friend);
+          setActiveView('chat');
+        }}
+        onOpenLightbox={(img) => setLightboxImage(img)}
+      />
+
+      {/* Редактирование своего профиля */}
+      <EditProfileModal
+        isOpen={isEditProfileOpen}
+        onClose={() => setIsEditProfileOpen(false)}
+        onProfileUpdated={(updatedUser) => {
+          // Обновляем список друзей если текущий пользователь изменил имя/аватар
+          loadFriends();
+        }}
       />
 
       {/* Всплывающие уведомления */}

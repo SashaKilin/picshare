@@ -118,11 +118,31 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
 
     const safeFileUrl = fileUrl || '';
     const safeOriginalName = originalName || '';
+    const replyToId = req.body.replyToId ? Number(req.body.replyToId) : null;
+
+    let replyToMessage = null;
+    if (replyToId) {
+      const ref = await db.get(`
+        SELECT img.id, img.sender_id, img.caption, img.file_url, u.username as sender_username 
+        FROM images img
+        JOIN users u ON u.id = img.sender_id
+        WHERE img.id = ?
+      `, [replyToId]);
+
+      if (ref) {
+        replyToMessage = {
+          id: ref.id,
+          username: ref.sender_username,
+          caption: ref.caption || '',
+          file_url: ref.file_url || ''
+        };
+      }
+    }
 
     const result = await db.run(`
-      INSERT INTO images (sender_id, receiver_id, file_url, original_name, caption, file_size) 
-      VALUES (?, ?, ?, ?, ?, ?) RETURNING id
-    `, [senderId, receiverId, safeFileUrl, safeOriginalName, caption, fileSize]);
+      INSERT INTO images (sender_id, receiver_id, file_url, original_name, caption, file_size, reply_to_id) 
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+    `, [senderId, receiverId, safeFileUrl, safeOriginalName, caption, fileSize, replyToId]);
 
     const newImage = {
       id: result.lastInsertRowid,
@@ -132,6 +152,8 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       original_name: safeOriginalName,
       caption: caption,
       file_size: fileSize,
+      reply_to_id: replyToId,
+      reply_to: replyToMessage,
       created_at: new Date().toISOString(),
       sender_username: req.user.username,
       sender_avatar: req.user.avatar
@@ -169,7 +191,7 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
       });
     }
 
-    const images = await db.all(`
+    const rows = await db.all(`
       SELECT 
         img.id,
         img.sender_id,
@@ -178,15 +200,42 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
         img.original_name,
         img.caption,
         img.file_size,
+        img.reply_to_id,
         img.created_at,
         u.username AS sender_username,
-        u.avatar AS sender_avatar
+        u.avatar AS sender_avatar,
+        rep.id AS reply_id,
+        rep.caption AS reply_caption,
+        rep.file_url AS reply_file_url,
+        rep_u.username AS reply_username
       FROM images img
       JOIN users u ON u.id = img.sender_id
+      LEFT JOIN images rep ON rep.id = img.reply_to_id
+      LEFT JOIN users rep_u ON rep_u.id = rep.sender_id
       WHERE (img.sender_id = ? AND img.receiver_id = ?) 
          OR (img.sender_id = ? AND img.receiver_id = ?)
       ORDER BY img.created_at ASC
     `, [myId, friendId, friendId, myId]);
+
+    const images = rows.map(r => ({
+      id: r.id,
+      sender_id: r.sender_id,
+      receiver_id: r.receiver_id,
+      file_url: r.file_url,
+      original_name: r.original_name,
+      caption: r.caption,
+      file_size: r.file_size,
+      reply_to_id: r.reply_to_id,
+      reply_to: r.reply_id ? {
+        id: r.reply_id,
+        username: r.reply_username,
+        caption: r.reply_caption,
+        file_url: r.reply_file_url
+      } : null,
+      created_at: r.created_at,
+      sender_username: r.sender_username,
+      sender_avatar: r.sender_avatar
+    }));
 
     const friend = await db.get('SELECT id, username, email, avatar FROM users WHERE id = ?', [friendId]);
 

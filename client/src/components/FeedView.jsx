@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { LayoutGrid, Download, Image as ImageIcon, MessageSquare } from 'lucide-react';
 
-export function FeedView({ onSelectFriend, onOpenLightbox }) {
+export function FeedView({ onSelectFriend, onOpenLightbox, onOpenProfile }) {
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -99,13 +99,17 @@ export function FeedView({ onSelectFriend, onOpenLightbox }) {
               </div>
 
               <div className="p-2 sm:p-2.5 flex items-center justify-between gap-1.5 border-t border-slate-800">
-                <div className="flex items-center gap-1.5 min-w-0">
+                <div 
+                  onClick={() => onOpenProfile && onOpenProfile(img.sender_id)}
+                  className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition group"
+                  title="Посмотреть профиль"
+                >
                   <img
                     src={img.sender_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${img.sender_username}`}
                     alt={img.sender_username}
-                    className="w-5 h-5 rounded-full border border-slate-700 object-cover shrink-0"
+                    className="w-5 h-5 rounded-full border border-slate-700 object-cover shrink-0 group-hover:border-indigo-400"
                   />
-                  <div className="text-[11px] font-semibold text-slate-200 truncate">
+                  <div className="text-[11px] font-semibold text-slate-200 truncate group-hover:text-indigo-300">
                     {img.sender_username}
                   </div>
                 </div>

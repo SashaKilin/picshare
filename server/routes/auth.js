@@ -1,12 +1,42 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
 const { OAuth2Client } = require('google-auth-library');
 const db = require('../db');
 const { requireAuth, JWT_SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+const isCloudinaryConfigured = Boolean(
+  process.env.CLOUDINARY_URL || 
+  (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)
+);
+
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'media-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 15 * 1024 * 1024 }
+});
 
 function generateToken(user) {
   return jwt.sign(
@@ -16,7 +46,7 @@ function generateToken(user) {
   );
 }
 
-// 1. Регистрация (Email + Пароль) - без кодов подтверждения
+// 1. Регистрация (Email + Пароль)
 router.post('/register', async (req, res) => {
   try {
     let { username, email, password } = req.body;
@@ -44,13 +74,11 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Пароль должен быть не менее 6 символов' });
     }
 
-    // Проверка уникальности email
     const existingEmail = await db.get('SELECT id FROM users WHERE email = ?', [email]);
     if (existingEmail) {
       return res.status(400).json({ error: 'Пользователь с таким email уже зарегистрирован' });
     }
 
-    // Проверка уникальности username
     const existingUser = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
     if (existingUser) {
       return res.status(400).json({ error: 'Это имя пользователя уже занято' });
@@ -71,6 +99,10 @@ router.post('/register', async (req, res) => {
       username,
       email,
       avatar: defaultAvatar,
+      banner: null,
+      bio: '',
+      birthdate: null,
+      badge: null,
       created_at: new Date().toISOString(),
     };
 
@@ -87,7 +119,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// 2. Вход (Email/Логин + Пароль)
+// 2. Вход
 router.post('/login', async (req, res) => {
   try {
     let { login, password } = req.body;
@@ -98,7 +130,6 @@ router.post('/login', async (req, res) => {
 
     login = login.trim();
 
-    // Ищем пользователя по email или логину
     const user = await db.get(
       'SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)',
       [login, login]
@@ -118,6 +149,10 @@ router.post('/login', async (req, res) => {
       username: user.username,
       email: user.email,
       avatar: user.avatar,
+      banner: user.banner,
+      bio: user.bio,
+      birthdate: user.birthdate,
+      badge: user.badge,
       created_at: user.created_at,
     };
 
@@ -204,6 +239,10 @@ router.post('/google', async (req, res) => {
         email,
         google_id: googleId,
         avatar: picture,
+        banner: null,
+        bio: '',
+        birthdate: null,
+        badge: null,
         created_at: new Date().toISOString(),
       };
     }
@@ -213,6 +252,10 @@ router.post('/google', async (req, res) => {
       username: user.username,
       email: user.email,
       avatar: user.avatar,
+      banner: user.banner,
+      bio: user.bio,
+      birthdate: user.birthdate,
+      badge: user.badge,
       created_at: user.created_at,
     };
 
@@ -234,10 +277,41 @@ router.get('/me', requireAuth, (req, res) => {
   return res.json({ user: req.user });
 });
 
-// 5. Обновить профиль
+// 5. Загрузка файла аватара или баннера
+router.post('/upload-media', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл не выбран' });
+    }
+
+    let fileUrl = '';
+    if (isCloudinaryConfigured) {
+      try {
+        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'picshare_profiles',
+          resource_type: 'image',
+        });
+        fileUrl = uploadResult.secure_url;
+        fs.unlinkSync(req.file.path);
+      } catch (cloudErr) {
+        console.error('Cloudinary upload error:', cloudErr);
+        fileUrl = `/uploads/${req.file.filename}`;
+      }
+    } else {
+      fileUrl = `/uploads/${req.file.filename}`;
+    }
+
+    return res.json({ url: fileUrl });
+  } catch (err) {
+    console.error('Ошибка загрузки медиа:', err);
+    return res.status(500).json({ error: 'Не удалось загрузить изображение' });
+  }
+});
+
+// 6. Обновить профиль (никнейм, аватар, баннер, описание, дата рождения, статус-бейдж)
 router.put('/profile', requireAuth, async (req, res) => {
   try {
-    const { username, avatar } = req.body;
+    const { username, avatar, banner, bio, birthdate, badge } = req.body;
     const updates = [];
     const params = [];
 
@@ -254,9 +328,29 @@ router.put('/profile', requireAuth, async (req, res) => {
       params.push(cleanUsername);
     }
 
-    if (avatar && avatar.trim()) {
+    if (typeof avatar !== 'undefined') {
       updates.push('avatar = ?');
-      params.push(avatar.trim());
+      params.push(avatar ? avatar.trim() : null);
+    }
+
+    if (typeof banner !== 'undefined') {
+      updates.push('banner = ?');
+      params.push(banner ? banner.trim() : null);
+    }
+
+    if (typeof bio !== 'undefined') {
+      updates.push('bio = ?');
+      params.push(bio ? bio.trim().slice(0, 300) : '');
+    }
+
+    if (typeof birthdate !== 'undefined') {
+      updates.push('birthdate = ?');
+      params.push(birthdate ? birthdate.trim() : null);
+    }
+
+    if (typeof badge !== 'undefined') {
+      updates.push('badge = ?');
+      params.push(badge ? badge.trim().slice(0, 50) : null);
     }
 
     if (updates.length > 0) {
@@ -264,8 +358,15 @@ router.put('/profile', requireAuth, async (req, res) => {
       await db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
     }
 
-    const updatedUser = await db.get('SELECT id, username, email, avatar, created_at FROM users WHERE id = ?', [req.user.id]);
-    return res.json({ user: updatedUser });
+    const updatedUser = await db.get(
+      'SELECT id, username, email, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
+      [req.user.id]
+    );
+
+    return res.json({ 
+      message: 'Профиль успешно обновлен',
+      user: updatedUser 
+    });
   } catch (err) {
     console.error('Ошибка обновления профиля:', err);
     return res.status(500).json({ error: 'Не удалось обновить профиль' });

@@ -3,7 +3,7 @@ import { api } from '../api';
 import { X, Search, UserPlus, Check, Clock, UserCheck, MessageSquare, AlertCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-export function UserSearchModal({ isOpen, onClose, onSelectFriend }) {
+export function UserSearchModal({ isOpen, onClose, onSelectFriend, onOpenProfile }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -145,14 +145,22 @@ export function UserSearchModal({ isOpen, onClose, onSelectFriend }) {
               key={user.id}
               className="flex items-center justify-between p-3 rounded-2xl bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 transition"
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div 
+                onClick={() => {
+                  if (onOpenProfile) {
+                    onOpenProfile(user.id);
+                  }
+                }}
+                className="flex items-center gap-3 min-w-0 cursor-pointer hover:opacity-85 transition group"
+                title="Посмотреть профиль"
+              >
                 <img
                   src={user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username}`}
                   alt={user.username}
-                  className="w-10 h-10 rounded-full border border-slate-700 object-cover bg-slate-800 shrink-0"
+                  className="w-10 h-10 rounded-full border border-slate-700 object-cover bg-slate-800 shrink-0 group-hover:border-indigo-400"
                 />
                 <div className="min-w-0">
-                  <div className="font-semibold text-sm text-slate-200 truncate">
+                  <div className="font-semibold text-sm text-slate-200 truncate group-hover:text-indigo-300">
                     {user.username}
                   </div>
                   <div className="text-xs text-slate-400 truncate">

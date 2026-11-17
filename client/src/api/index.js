@@ -43,12 +43,20 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
-  // Auth
+  // Auth & Profile
   register: (userData) => request('/auth/register', { method: 'POST', body: userData }),
   login: (credentials) => request('/auth/login', { method: 'POST', body: credentials }),
   googleAuth: (credential) => request('/auth/google', { method: 'POST', body: { credential } }),
   getMe: () => request('/auth/me'),
   updateProfile: (profileData) => request('/auth/profile', { method: 'PUT', body: profileData }),
+  uploadMedia: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request('/auth/upload-media', { method: 'POST', body: formData });
+  },
+
+  // Users public profiles
+  getUserProfile: (idOrUsername) => request(`/users/${idOrUsername}`),
 
   // Friends
   getFriends: () => request('/friends'),
@@ -59,7 +67,7 @@ export const api = {
   removeFriend: (friendId) => request(`/friends/${friendId}`, { method: 'DELETE' }),
   searchUsers: (q) => request(`/friends/search?q=${encodeURIComponent(q)}`),
 
-  // Images
+  // Images & Messages
   sendImage: (formData) => request('/images/send', { method: 'POST', body: formData }),
   getChatImages: (friendId) => request(`/images/chat/${friendId}`),
   deleteImage: (imageId) => request(`/images/${imageId}`, { method: 'DELETE' }),

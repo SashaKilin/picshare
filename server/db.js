@@ -40,6 +40,10 @@ const db = {
           password_hash TEXT,
           google_id VARCHAR(255) UNIQUE,
           avatar TEXT,
+          banner TEXT,
+          bio TEXT,
+          birthdate VARCHAR(50),
+          badge VARCHAR(100),
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -69,17 +73,22 @@ const db = {
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
       `);
 
-      // Снимаем ограничение NOT NULL с file_url и original_name, если таблица была создана ранее
+      // Добавляем новые колонки в PostgreSQL если их еще нет
       try {
         await pgPool.query(`
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS banner TEXT;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS birthdate VARCHAR(50);
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS badge VARCHAR(100);
+          ALTER TABLE images ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;
           ALTER TABLE images ALTER COLUMN file_url DROP NOT NULL;
           ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;
         `);
       } catch (e) {
-        // Игнорируем, если уже nullable
+        // Игнорируем
       }
 
-      console.log('✅ Таблицы PostgreSQL готовы (поддержка текста и фото)');
+      console.log('✅ Таблицы PostgreSQL готовы (профили, чат, баннеры)');
     } else {
       sqliteDb.exec(`
         CREATE TABLE IF NOT EXISTS users (
@@ -89,6 +98,10 @@ const db = {
           password_hash TEXT,
           google_id TEXT UNIQUE,
           avatar TEXT,
+          banner TEXT,
+          bio TEXT,
+          birthdate TEXT,
+          badge TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -122,9 +135,25 @@ const db = {
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
       `);
 
-      // Автоматическая миграция существующей SQLite таблицы images (снятие NOT NULL)
+      // Автоматическая миграция SQLite users (добавление banner, bio, birthdate, badge)
+      try {
+        const userCols = sqliteDb.prepare("PRAGMA table_info(users);").all().map(c => c.name);
+        if (!userCols.includes('banner')) sqliteDb.exec("ALTER TABLE users ADD COLUMN banner TEXT;");
+        if (!userCols.includes('bio')) sqliteDb.exec("ALTER TABLE users ADD COLUMN bio TEXT;");
+        if (!userCols.includes('birthdate')) sqliteDb.exec("ALTER TABLE users ADD COLUMN birthdate TEXT;");
+        if (!userCols.includes('badge')) sqliteDb.exec("ALTER TABLE users ADD COLUMN badge TEXT;");
+      } catch (err) {
+        // Уже есть
+      }
+
+      // Автоматическая миграция существующей SQLite таблицы images (снятие NOT NULL и добавление reply_to_id)
       try {
         const tableInfo = sqliteDb.prepare("PRAGMA table_info(images);").all();
+        const colNames = tableInfo.map(c => c.name);
+        if (!colNames.includes('reply_to_id')) {
+          sqliteDb.exec("ALTER TABLE images ADD COLUMN reply_to_id INTEGER;");
+        }
+
         const fileUrlCol = tableInfo.find(c => c.name === 'file_url');
         if (fileUrlCol && fileUrlCol.notnull === 1) {
           sqliteDb.exec(`
@@ -136,22 +165,22 @@ const db = {
               original_name TEXT,
               caption TEXT,
               file_size INTEGER,
+              reply_to_id INTEGER,
               created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
               FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
               FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
             );
-            INSERT INTO images_new SELECT id, sender_id, receiver_id, file_url, original_name, caption, file_size, created_at FROM images;
+            INSERT INTO images_new SELECT id, sender_id, receiver_id, file_url, original_name, caption, file_size, reply_to_id, created_at FROM images;
             DROP TABLE images;
             ALTER TABLE images_new RENAME TO images;
             CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
           `);
-          console.log('✅ SQLite images таблица успешно мигрирована на поддержку чисто текстовых сообщений');
         }
       } catch (migErr) {
-        // Таблица уже создана правильно
+        // Игнорируем
       }
 
-      console.log('✅ Таблицы SQLite готовы (поддержка текста и фото)');
+      console.log('✅ Таблицы SQLite готовы (профили, чат, баннеры)');
     }
   },
 
