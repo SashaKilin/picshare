@@ -22,7 +22,6 @@ if (isPg) {
   sqliteDb.exec('PRAGMA foreign_keys = ON;');
 }
 
-// Преобразование ? в $1, $2 для PostgreSQL
 function toPgSql(sql) {
   let index = 1;
   return sql.replace(/\?/g, () => `$${index++}`);
@@ -33,7 +32,6 @@ const db = {
 
   async init() {
     if (isPg) {
-      // PostgreSQL DDL
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
@@ -60,8 +58,8 @@ const db = {
           id SERIAL PRIMARY KEY,
           sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          file_url TEXT NOT NULL,
-          original_name TEXT NOT NULL,
+          file_url TEXT,
+          original_name TEXT,
           caption TEXT,
           file_size INTEGER,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -70,9 +68,19 @@ const db = {
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(user1_id, user2_id);
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
       `);
-      console.log('✅ Таблицы PostgreSQL готовы');
+
+      // Снимаем ограничение NOT NULL с file_url и original_name, если таблица была создана ранее
+      try {
+        await pgPool.query(`
+          ALTER TABLE images ALTER COLUMN file_url DROP NOT NULL;
+          ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;
+        `);
+      } catch (e) {
+        // Игнорируем, если уже nullable
+      }
+
+      console.log('✅ Таблицы PostgreSQL готовы (поддержка текста и фото)');
     } else {
-      // SQLite DDL
       sqliteDb.exec(`
         CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,8 +109,8 @@ const db = {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           sender_id INTEGER NOT NULL,
           receiver_id INTEGER NOT NULL,
-          file_url TEXT NOT NULL,
-          original_name TEXT NOT NULL,
+          file_url TEXT,
+          original_name TEXT,
           caption TEXT,
           file_size INTEGER,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -113,7 +121,7 @@ const db = {
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(user1_id, user2_id);
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
       `);
-      console.log('✅ Таблицы SQLite готовы');
+      console.log('✅ Таблицы SQLite готовы (поддержка текста и фото)');
     }
   },
 

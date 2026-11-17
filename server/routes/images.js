@@ -8,7 +8,6 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Проверяем, настроен ли Cloudinary
 const isCloudinaryConfigured = Boolean(
   process.env.CLOUDINARY_URL || 
   (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)
@@ -27,7 +26,6 @@ if (isCloudinaryConfigured) {
   console.log('📁 Используется локальное хранилище картинок (server/uploads)');
 }
 
-// Папка uploads для локального хранения или временных файлов multer
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -59,7 +57,6 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }
 });
 
-// Проверка дружбы
 async function checkAreFriends(userA, userB) {
   const u1 = Math.min(userA, userB);
   const u2 = Math.max(userA, userB);
@@ -67,7 +64,7 @@ async function checkAreFriends(userA, userB) {
   return row && row.status === 'accepted';
 }
 
-// 1. Отправить картинку другу
+// 1. Отправить сообщение (текст, фото или текст + фото)
 router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
   try {
     const senderId = req.user.id;
@@ -79,40 +76,44 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Не указан получатель' });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'Пожалуйста, выберите изображение' });
+    // Должен быть либо текст сообщения, либо прикрепленная картинка
+    if (!req.file && !caption) {
+      return res.status(400).json({ error: 'Введите текст сообщения или прикрепите изображение' });
     }
 
-    // ГЛАВНОЕ ПРАВИЛО: отправлять картинки можно ТОЛЬКО взаимным друзьям!
+    // Отправлять можно только взаимным друзьям!
     const areFriends = await checkAreFriends(senderId, receiverId);
     if (!areFriends) {
-      fs.unlinkSync(req.file.path);
+      if (req.file) fs.unlinkSync(req.file.path);
       return res.status(403).json({
-        error: 'Отправлять картинки можно только взаимным друзьям! Сначала добавьте друг друга в друзья.'
+        error: 'Отправлять сообщения можно только взаимным друзьям! Сначала добавьте друг друга в друзья.'
       });
     }
 
-    let fileUrl = '';
-    const originalName = req.file.originalname;
-    const fileSize = req.file.size;
+    let fileUrl = null;
+    let originalName = null;
+    let fileSize = 0;
 
-    // Если подключен Cloudinary — загружаем в облако, если нет — сохраняем локально
-    if (isCloudinaryConfigured) {
-      try {
-        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
-          folder: 'picshare_images',
-          resource_type: 'image',
-        });
-        fileUrl = uploadResult.secure_url;
-        // Удаляем локальный временный файл
-        fs.unlinkSync(req.file.path);
-      } catch (cloudErr) {
-        console.error('Ошибка загрузки в Cloudinary:', cloudErr);
-        // Fallback на локальный файл
+    // Если есть прикрепленный файл
+    if (req.file) {
+      originalName = req.file.originalname;
+      fileSize = req.file.size;
+
+      if (isCloudinaryConfigured) {
+        try {
+          const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+            folder: 'picshare_images',
+            resource_type: 'image',
+          });
+          fileUrl = uploadResult.secure_url;
+          fs.unlinkSync(req.file.path);
+        } catch (cloudErr) {
+          console.error('Ошибка загрузки в Cloudinary:', cloudErr);
+          fileUrl = `/uploads/${req.file.filename}`;
+        }
+      } else {
         fileUrl = `/uploads/${req.file.filename}`;
       }
-    } else {
-      fileUrl = `/uploads/${req.file.filename}`;
     }
 
     const result = await db.run(`
@@ -140,19 +141,19 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
     }
 
     return res.status(201).json({
-      message: 'Картинка успешно отправлена!',
+      message: fileUrl ? 'Картинка отправлена!' : 'Сообщение отправлено!',
       image: newImage
     });
   } catch (err) {
-    console.error('Ошибка отправки картинки:', err);
+    console.error('Ошибка отправки сообщения:', err);
     if (req.file && fs.existsSync(req.file.path)) {
       try { fs.unlinkSync(req.file.path); } catch (e) {}
     }
-    return res.status(500).json({ error: err.message || 'Ошибка сервера при отправке картинки' });
+    return res.status(500).json({ error: err.message || 'Ошибка сервера при отправке' });
   }
 });
 
-// 2. Получить историю картинок в диалоге с другом
+// 2. Получить историю диалога (и фото, и текстовые сообщения)
 router.get('/chat/:friendId', requireAuth, async (req, res) => {
   try {
     const myId = req.user.id;
@@ -161,7 +162,7 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
     const areFriends = await checkAreFriends(myId, friendId);
     if (!areFriends) {
       return res.status(403).json({
-        error: 'Доступ закрыт: просматривать обмен картинками можно только со взаимными друзьями'
+        error: 'Доступ закрыт: переписка доступна только со взаимными друзьями'
       });
     }
 
@@ -188,12 +189,12 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
 
     return res.json({ friend, images });
   } catch (err) {
-    console.error('Ошибка получения картинок:', err);
-    return res.status(500).json({ error: 'Не удалось загрузить историю картинок' });
+    console.error('Ошибка получения сообщений:', err);
+    return res.status(500).json({ error: 'Не удалось загрузить историю сообщений' });
   }
 });
 
-// 3. Удалить картинку
+// 3. Удалить сообщение или картинку
 router.delete('/:imageId', requireAuth, async (req, res) => {
   try {
     const myId = req.user.id;
@@ -201,15 +202,14 @@ router.delete('/:imageId', requireAuth, async (req, res) => {
 
     const image = await db.get('SELECT * FROM images WHERE id = ?', [imageId]);
     if (!image) {
-      return res.status(404).json({ error: 'Картинка не найдена' });
+      return res.status(404).json({ error: 'Сообщение не найдено' });
     }
 
     if (Number(image.sender_id) !== Number(myId)) {
-      return res.status(403).json({ error: 'Вы можете удалять только отправленные вами картинки' });
+      return res.status(403).json({ error: 'Вы можете удалять только отправленные вами сообщения' });
     }
 
-    // Удаляем файл с локального диска, если он хранился локально
-    if (image.file_url.startsWith('/uploads/')) {
+    if (image.file_url && image.file_url.startsWith('/uploads/')) {
       const filename = path.basename(image.file_url);
       const diskPath = path.join(uploadsDir, filename);
       if (fs.existsSync(diskPath)) {
@@ -225,14 +225,14 @@ router.delete('/:imageId', requireAuth, async (req, res) => {
       io.to(`user_${image.sender_id}`).emit('image_deleted', { imageId });
     }
 
-    return res.json({ message: 'Картинка удалена' });
+    return res.json({ message: 'Удалено' });
   } catch (err) {
-    console.error('Ошибка удаления картинки:', err);
-    return res.status(500).json({ error: 'Не удалось удалить картинку' });
+    console.error('Ошибка удаления:', err);
+    return res.status(500).json({ error: 'Не удалось удалить' });
   }
 });
 
-// 4. Последние картинки от всех друзей
+// 4. Общая галерея (только фото)
 router.get('/feed', requireAuth, async (req, res) => {
   try {
     const myId = req.user.id;
@@ -256,15 +256,17 @@ router.get('/feed', requireAuth, async (req, res) => {
          (f.user1_id = img.receiver_id AND f.user2_id = img.sender_id))
         AND f.status = 'accepted'
       )
-      WHERE img.receiver_id = ? OR img.sender_id = ?
+      WHERE (img.receiver_id = ? OR img.sender_id = ?) 
+        AND img.file_url IS NOT NULL 
+        AND img.file_url != ''
       ORDER BY img.created_at DESC
       LIMIT 50
     `, [myId, myId]);
 
     return res.json({ feed });
   } catch (err) {
-    console.error('Ошибка получения ленты картинок:', err);
-    return res.status(500).json({ error: 'Не удалось загрузить ленту картинок' });
+    console.error('Ошибка получения галереи:', err);
+    return res.status(500).json({ error: 'Не удалось загрузить галерею' });
   }
 });
 

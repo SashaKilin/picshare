@@ -4,7 +4,6 @@ import { useSocket } from '../context/SocketContext';
 import { api } from '../api';
 import { 
   Send, 
-  Image as ImageIcon, 
   Trash2, 
   Download, 
   X, 
@@ -15,12 +14,7 @@ import {
   UserMinus,
   ArrowLeft,
   Camera,
-  ArrowDown,
-  Sparkles,
-  Heart,
-  Flame,
-  ThumbsUp,
-  Smile
+  ArrowDown
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -65,10 +59,10 @@ export function ImageChat({
   const [isDragging, setIsDragging] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
 
-  // Новые новшества:
+  // Дополнительные возможности
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [newUnreadCount, setNewUnreadCount] = useState(0);
-  const [reactions, setReactions] = useState({}); // { [imageId]: emoji }
+  const [reactions, setReactions] = useState({});
 
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -108,7 +102,7 @@ export function ImageChat({
       })
       .catch((err) => {
         if (mounted) {
-          setError(err.message || 'Не удалось загрузить историю картинок');
+          setError(err.message || 'Не удалось загрузить историю сообщений');
           setLoading(false);
         }
       });
@@ -135,11 +129,9 @@ export function ImageChat({
           return [...prev, newImg];
         });
 
-        // Если пользователь внизу чата — автоматически скроллим
         if (isNearBottomRef.current || sId === myId) {
           scrollToBottom(true);
         } else {
-          // Если прокручивает историю выше — показываем счетчик новых фото
           setNewUnreadCount((c) => c + 1);
           setShowScrollBottom(true);
         }
@@ -184,7 +176,6 @@ export function ImageChat({
     return () => clearInterval(interval);
   }, [friend?.id]);
 
-  // Отслеживание прокрутки для кнопки "Вниз"
   function handleScroll() {
     const el = chatContainerRef.current;
     if (!el) return;
@@ -270,29 +261,36 @@ export function ImageChat({
     }
     setSelectedFile(null);
     setPreviewUrl(null);
-    setCaption('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   }
 
+  // Отправка (текст, фото или текст + фото)
   async function handleSendImage(e) {
     if (e) e.preventDefault();
-    if (!selectedFile || sending) return;
+    const hasText = Boolean(caption.trim());
+    const hasFile = Boolean(selectedFile);
+
+    if ((!hasText && !hasFile) || sending) return;
 
     setSending(true);
     setError('');
 
     const formData = new FormData();
-    formData.append('image', selectedFile);
+    if (hasFile) {
+      formData.append('image', selectedFile);
+    }
     formData.append('receiverId', friend.id);
-    if (caption.trim()) {
+    if (hasText) {
       formData.append('caption', caption.trim());
     }
 
     try {
       const res = await api.sendImage(formData);
       clearSelectedFile();
+      setCaption('');
+
       if (res.image) {
         setImages((prev) => {
           if (prev.some((img) => img.id === res.image.id)) return prev;
@@ -301,21 +299,23 @@ export function ImageChat({
         });
       }
       scrollToBottom(true);
-      confetti({ particleCount: 30, spread: 45, origin: { y: 0.85 } });
+      if (hasFile) {
+        confetti({ particleCount: 25, spread: 40, origin: { y: 0.85 } });
+      }
     } catch (err) {
-      setError(err.message || 'Не удалось отправить картинку');
+      setError(err.message || 'Не удалось отправить сообщение');
     } finally {
       setSending(false);
     }
   }
 
   async function handleDeleteImage(imageId) {
-    if (!confirm('Удалить эту картинку?')) return;
+    if (!confirm('Удалить это сообщение?')) return;
     try {
       await api.deleteImage(imageId);
       setImages((prev) => prev.filter((img) => img.id !== imageId));
     } catch (err) {
-      alert(err.message || 'Ошибка удаления картинки');
+      alert(err.message || 'Ошибка удаления');
     }
   }
 
@@ -329,7 +329,6 @@ export function ImageChat({
     }
   }
 
-  // Быстрая реакция на фото
   function handleAddReaction(imageId, emoji) {
     setReactions((prev) => ({
       ...prev,
@@ -338,6 +337,7 @@ export function ImageChat({
   }
 
   const isOnline = onlineUsers.has(Number(friend?.id));
+  const hasContentToSend = Boolean(selectedFile || caption.trim());
 
   return (
     <div 
@@ -357,11 +357,10 @@ export function ImageChat({
         </div>
       )}
 
-      {/* 1. Шапка чата (закреплена навсегда, не уезжает при скролле) */}
+      {/* 1. Шапка чата */}
       <div className="h-14 sm:h-16 px-3 sm:px-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 z-20">
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
           
-          {/* Кнопка Назад на мобильном */}
           {onBack && (
             <button
               onClick={onBack}
@@ -388,14 +387,11 @@ export function ImageChat({
           <div className="min-w-0">
             <div className="font-bold text-sm text-slate-100 flex items-center gap-2 truncate">
               <span className="truncate">{friend?.username}</span>
-              <span className="text-[10px] font-medium text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-full border border-slate-700/60 hidden sm:inline">
-                {images.length} {images.length === 1 ? 'фото' : images.length < 5 ? 'фото' : 'фотографий'}
-              </span>
             </div>
             <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
               <span>{isOnline ? 'В сети' : 'Не в сети'}</span>
-              <span className="text-slate-600 hidden sm:inline">•</span>
-              <span className="text-indigo-400/80 hidden sm:inline">Личный диалог</span>
+              <span className="text-slate-600">•</span>
+              <span className="text-indigo-400/80">Чат и фото</span>
             </div>
           </div>
         </div>
@@ -439,15 +435,15 @@ export function ImageChat({
         </div>
       )}
 
-      {/* 2. Область сообщений (Скроллится ТОЛЬКО ОНА, независимая прокрутка) */}
+      {/* 2. Область сообщений */}
       <div 
         ref={chatContainerRef}
         onScroll={handleScroll}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-6 space-y-4 sm:space-y-6 overscroll-contain"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-6 space-y-4 overscroll-contain"
       >
         {loading && (
           <div className="flex items-center justify-center h-full text-xs text-slate-500 animate-pulse">
-            Загрузка картинок...
+            Загрузка сообщений...
           </div>
         )}
 
@@ -457,17 +453,18 @@ export function ImageChat({
               <FileImage className="w-7 h-7 sm:w-8 sm:h-8" />
             </div>
             <div>
-              <h4 className="font-bold text-slate-200 text-sm sm:text-base">Обмен картинками открыт!</h4>
+              <h4 className="font-bold text-slate-200 text-sm sm:text-base">Начните общение!</h4>
               <p className="text-xs text-slate-400 max-w-xs sm:max-w-sm mt-1">
-                Прикрепите фото или сделайте снимок на камеру, чтобы отправить первую картинку!
+                Напишите сообщение или отправьте картинку своему другу.
               </p>
             </div>
           </div>
         )}
 
-        {/* Карточки картинок с группировкой по датам */}
+        {/* Сообщения (текстовые и с картинками) */}
         {images.map((img, index) => {
           const isMe = Number(img.sender_id) === Number(user.id);
+          const hasImage = Boolean(img.file_url && img.file_url.trim());
           const currentDate = formatMessageDate(img.created_at);
           const prevDate = index > 0 ? formatMessageDate(images[index - 1].created_at) : null;
           const showDateDivider = currentDate !== prevDate;
@@ -496,96 +493,134 @@ export function ImageChat({
                   </span>
                 </div>
 
-                {/* Тело карточки картинки */}
-                <div className="relative w-full max-w-[85%] sm:max-w-md rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-xl transition-all">
-                  
-                  {/* Изображение */}
-                  <div 
-                    className="cursor-pointer overflow-hidden bg-slate-950 max-h-[350px] sm:max-h-[420px] flex items-center justify-center relative active:opacity-90"
-                    onClick={() => onOpenLightbox(img)}
-                  >
-                    <img
-                      src={img.file_url}
-                      alt={img.original_name}
-                      className="w-full h-auto max-h-[350px] sm:max-h-[420px] object-cover"
-                      loading="lazy"
-                    />
-
-                    {/* Активная реакция в углу */}
-                    {activeReaction && (
-                      <span className="absolute bottom-2 right-2 text-base bg-slate-900/90 border border-slate-700/80 px-2 py-0.5 rounded-full shadow-lg animate-bounce-short">
-                        {activeReaction}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Подпись */}
-                  {img.caption && (
-                    <div className="p-2.5 sm:p-3 bg-slate-900/95 border-t border-slate-800 text-xs sm:text-sm text-slate-200 break-words">
-                      {img.caption}
-                    </div>
-                  )}
-
-                  {/* Нижняя панель действий */}
-                  <div className="px-2.5 sm:px-3 py-1.5 bg-slate-900/90 border-t border-slate-800/60 flex items-center justify-between text-slate-400 text-xs">
+                {/* ВАРИАНТ 1: Карточка с изображением (+ опциональная подпись) */}
+                {hasImage ? (
+                  <div className="relative w-full max-w-[85%] sm:max-w-md rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-xl transition-all">
                     
-                    {/* Быстрые реакции-эмодзи (новое новшество) */}
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleAddReaction(img.id, '❤️')}
-                        className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '❤️' ? 'bg-rose-500/20 text-rose-400' : 'text-slate-400 hover:text-rose-400'}`}
-                        title="Нравится"
-                      >
-                        ❤️
-                      </button>
-                      <button
-                        onClick={() => handleAddReaction(img.id, '🔥')}
-                        className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '🔥' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`}
-                        title="Огонь"
-                      >
-                        🔥
-                      </button>
-                      <button
-                        onClick={() => handleAddReaction(img.id, '😂')}
-                        className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '😂' ? 'bg-yellow-500/20 text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
-                        title="Смешно"
-                      >
-                        😂
-                      </button>
-                      <button
-                        onClick={() => handleAddReaction(img.id, '👍')}
-                        className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '👍' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:text-indigo-400'}`}
-                        title="Класс"
-                      >
-                        👍
-                      </button>
+                    <div 
+                      className="cursor-pointer overflow-hidden bg-slate-950 max-h-[350px] sm:max-h-[420px] flex items-center justify-center relative active:opacity-90"
+                      onClick={() => onOpenLightbox(img)}
+                    >
+                      <img
+                        src={img.file_url}
+                        alt={img.original_name || 'Фотография'}
+                        className="w-full h-auto max-h-[350px] sm:max-h-[420px] object-cover"
+                        loading="lazy"
+                      />
+
+                      {activeReaction && (
+                        <span className="absolute bottom-2 right-2 text-base bg-slate-900/90 border border-slate-700/80 px-2 py-0.5 rounded-full shadow-lg animate-bounce-short">
+                          {activeReaction}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-1">
-                      <a
-                        href={img.file_url}
-                        download={img.original_name}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 rounded-lg hover:text-white hover:bg-slate-800 transition touch-manipulation"
-                        title="Скачать оригинал"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </a>
+                    {img.caption && (
+                      <div className="p-2.5 sm:p-3 bg-slate-900/95 border-t border-slate-800 text-xs sm:text-sm text-slate-200 break-words">
+                        {img.caption}
+                      </div>
+                    )}
+
+                    <div className="px-2.5 sm:px-3 py-1.5 bg-slate-900/90 border-t border-slate-800/60 flex items-center justify-between text-slate-400 text-xs">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleAddReaction(img.id, '❤️')}
+                          className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '❤️' ? 'bg-rose-500/20 text-rose-400' : 'text-slate-400 hover:text-rose-400'}`}
+                          title="Нравится"
+                        >
+                          ❤️
+                        </button>
+                        <button
+                          onClick={() => handleAddReaction(img.id, '🔥')}
+                          className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '🔥' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:text-amber-400'}`}
+                          title="Огонь"
+                        >
+                          🔥
+                        </button>
+                        <button
+                          onClick={() => handleAddReaction(img.id, '😂')}
+                          className={`p-1 rounded-lg hover:bg-slate-800 transition text-xs ${activeReaction === '😂' ? 'bg-yellow-500/20 text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
+                          title="Смешно"
+                        >
+                          😂
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <a
+                          href={img.file_url}
+                          download={img.original_name || 'image'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 rounded-lg hover:text-white hover:bg-slate-800 transition touch-manipulation"
+                          title="Скачать оригинал"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+
+                        {isMe && (
+                          <button
+                            onClick={() => handleDeleteImage(img.id)}
+                            className="p-1.5 rounded-lg hover:text-rose-400 hover:bg-rose-500/10 transition touch-manipulation"
+                            title="Удалить"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+                ) : (
+                  /* ВАРИАНТ 2: Обычное текстовое сообщение */
+                  <div className={`relative max-w-[85%] sm:max-w-md p-3.5 rounded-2xl shadow-md transition-all ${
+                    isMe
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-tr-xs'
+                      : 'bg-slate-800 text-slate-100 rounded-tl-xs border border-slate-700/60'
+                  }`}>
+                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap select-text">
+                      {img.caption}
+                    </p>
+
+                    {/* Подвал текстового сообщения */}
+                    <div className="mt-2 flex items-center justify-between gap-3 pt-1 border-t border-white/10 text-[11px] text-white/70">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleAddReaction(img.id, '❤️')}
+                          className="hover:scale-125 transition transform"
+                        >
+                          ❤️
+                        </button>
+                        <button
+                          onClick={() => handleAddReaction(img.id, '🔥')}
+                          className="hover:scale-125 transition transform"
+                        >
+                          🔥
+                        </button>
+                        <button
+                          onClick={() => handleAddReaction(img.id, '👍')}
+                          className="hover:scale-125 transition transform"
+                        >
+                          👍
+                        </button>
+                        {activeReaction && (
+                          <span className="ml-1 text-xs">{activeReaction}</span>
+                        )}
+                      </div>
 
                       {isMe && (
                         <button
                           onClick={() => handleDeleteImage(img.id)}
-                          className="p-1.5 rounded-lg hover:text-rose-400 hover:bg-rose-500/10 transition touch-manipulation"
-                          title="Удалить картинку"
+                          className="text-white/60 hover:text-rose-300 transition"
+                          title="Удалить сообщение"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3" />
                         </button>
                       )}
                     </div>
                   </div>
+                )}
 
-                </div>
               </div>
             </React.Fragment>
           );
@@ -594,14 +629,14 @@ export function ImageChat({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Плавающая кнопка "Вниз к новым фото" (новое новшество) */}
+      {/* Плавающая кнопка "Вниз" */}
       {showScrollBottom && (
         <button
           onClick={() => scrollToBottom(true)}
           className="absolute bottom-16 sm:bottom-20 right-4 sm:right-6 z-30 flex items-center gap-2 px-3.5 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-xl shadow-indigo-950/80 transition transform hover:scale-105 active:scale-95 animate-bounce-short border border-indigo-400/30"
         >
           <ArrowDown className="w-3.5 h-3.5" />
-          <span>{newUnreadCount > 0 ? `Новые фото (+${newUnreadCount})` : 'Вниз'}</span>
+          <span>{newUnreadCount > 0 ? `Новые (+${newUnreadCount})` : 'Вниз'}</span>
         </button>
       )}
 
@@ -622,13 +657,13 @@ export function ImageChat({
               {selectedFile?.name}
             </p>
             <p className="text-[10px] text-slate-400">
-              Готово к отправке
+              Прикреплено фото (можно добавить подпись ниже)
             </p>
           </div>
         </div>
       )}
 
-      {/* 3. Панель ввода и отправки (закреплена внизу навсегда) */}
+      {/* 3. Панель ввода и отправки */}
       <form 
         onSubmit={handleSendImage}
         className="p-2 sm:p-3 bg-slate-900/95 border-t border-slate-800 flex items-center gap-2 safe-bottom shrink-0 z-20"
@@ -651,13 +686,13 @@ export function ImageChat({
           <Camera className="w-5 h-5 sm:w-4 sm:h-4" />
         </button>
 
-        {/* Поле для ввода комментария/подписи */}
+        {/* Поле для ввода сообщения или подписи */}
         <div className="flex-1 relative">
           <input
             type="text"
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
-            placeholder={selectedFile ? 'Подпись к фото...' : 'Прикрепите фото или вставьте...'}
+            placeholder={selectedFile ? 'Добавьте подпись к фото...' : 'Напишите сообщение...'}
             className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3.5 py-2 text-base sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition"
           />
         </div>
@@ -665,8 +700,9 @@ export function ImageChat({
         {/* Кнопка отправки */}
         <button
           type="submit"
-          disabled={!selectedFile || sending}
-          className="p-2.5 sm:px-4 sm:py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-semibold shadow-md transition disabled:opacity-40 shrink-0 touch-manipulation active:scale-95 flex items-center gap-1.5"
+          disabled={!hasContentToSend || sending}
+          className="p-2.5 sm:px-4 sm:py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-semibold shadow-md transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0 touch-manipulation active:scale-95 flex items-center gap-1.5"
+          title="Отправить (Enter)"
         >
           <Send className="w-4 h-4" />
           <span className="hidden sm:inline text-xs">{sending ? 'Отправка...' : 'Отправить'}</span>
