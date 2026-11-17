@@ -37,6 +37,13 @@ function MainApp() {
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
 
+  // Гарантированный сброс скролла окна при переключении диалогов и видов
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    if (document.documentElement) document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
+  }, [selectedFriend, activeView]);
+
   useEffect(() => {
     if (isAuthenticated) {
       loadFriends();
@@ -81,7 +88,6 @@ function MainApp() {
     try {
       const data = await api.getFriends();
       setFriends(data.friends || []);
-      // На десктопе выбираем первого друга, если еще не выбран
       if (window.innerWidth >= 768 && data.friends?.length > 0 && !selectedFriend) {
         setSelectedFriend(data.friends[0]);
       }
@@ -119,7 +125,7 @@ function MainApp() {
 
   if (authLoading) {
     return (
-      <div className="h-[100dvh] w-full bg-slate-950 flex items-center justify-center">
+      <div className="fixed inset-0 w-full h-full bg-slate-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center animate-spin">
             <Images className="w-6 h-6 text-white" />
@@ -131,9 +137,13 @@ function MainApp() {
   }
 
   return (
-    <div className="h-[100dvh] max-h-[100dvh] flex flex-col bg-slate-950 text-slate-100 font-sans overflow-hidden select-none">
+    <div className="fixed inset-0 w-full h-full flex flex-col bg-slate-950 text-slate-100 font-sans overflow-hidden select-none">
       
-      {/* Навигационная панель: на мобильных скрыта в открытом диалоге для полноэкранного чата */}
+      {/* Навигационная панель (Шапка сайта):
+          - На компьютерах видна всегда
+          - На мобильных в списке друзей и ленте видна ВСЕГДА
+          - Внутри открытого чата скрывается для максимизации области переписки, 
+            но при возврате назад (←) гарантированно восстанавливается на 100%! */}
       <div className={`shrink-0 z-40 ${selectedFriend && activeView === 'chat' ? 'hidden md:block' : 'block'}`}>
         <Navbar
           onOpenAuth={() => setIsAuthOpen(true)}
@@ -177,7 +187,12 @@ function MainApp() {
                     friend={selectedFriend}
                     onFriendRemoved={handleFriendRemoved}
                     onOpenLightbox={(img) => setLightboxImage(img)}
-                    onBack={() => setSelectedFriend(null)}
+                    onBack={() => {
+                      setSelectedFriend(null);
+                      window.scrollTo(0, 0);
+                      if (document.documentElement) document.documentElement.scrollTop = 0;
+                      if (document.body) document.body.scrollTop = 0;
+                    }}
                   />
                 </div>
               ) : (
@@ -202,7 +217,7 @@ function MainApp() {
           )}
         </main>
       ) : (
-        /* Приветственный лендинг (прокручиваемый) */
+        /* Приветственный лендинг */
         <main className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center p-4 sm:p-8">
           <div className="max-w-4xl w-full text-center py-6 sm:py-12 px-2 sm:px-4">
             
