@@ -133,8 +133,8 @@ function MainApp() {
   return (
     <div className="h-[100dvh] max-h-[100dvh] flex flex-col bg-slate-950 text-slate-100 font-sans overflow-hidden select-none">
       
-      {/* Навигационная панель (всегда закреплена вверху) */}
-      <div className="shrink-0 z-40">
+      {/* Навигационная панель: на мобильных скрыта в открытом диалоге для полноэкранного чата */}
+      <div className={`shrink-0 z-40 ${selectedFriend && activeView === 'chat' ? 'hidden md:block' : 'block'}`}>
         <Navbar
           onOpenAuth={() => setIsAuthOpen(true)}
           onOpenSearch={() => setIsSearchOpen(true)}

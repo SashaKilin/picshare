@@ -194,10 +194,16 @@ export function ImageChat({
 
   function scrollToBottom(smooth = true) {
     setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+      const el = chatContainerRef.current;
+      if (el) {
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: smooth ? 'smooth' : 'auto'
+        });
+      }
       setShowScrollBottom(false);
       setNewUnreadCount(0);
-    }, 60);
+    }, 40);
   }
 
   function handleFileSelect(file) {
