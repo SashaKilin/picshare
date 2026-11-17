@@ -116,17 +116,20 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       }
     }
 
+    const safeFileUrl = fileUrl || '';
+    const safeOriginalName = originalName || '';
+
     const result = await db.run(`
       INSERT INTO images (sender_id, receiver_id, file_url, original_name, caption, file_size) 
       VALUES (?, ?, ?, ?, ?, ?) RETURNING id
-    `, [senderId, receiverId, fileUrl, originalName, caption, fileSize]);
+    `, [senderId, receiverId, safeFileUrl, safeOriginalName, caption, fileSize]);
 
     const newImage = {
       id: result.lastInsertRowid,
       sender_id: senderId,
       receiver_id: receiverId,
-      file_url: fileUrl,
-      original_name: originalName,
+      file_url: safeFileUrl,
+      original_name: safeOriginalName,
       caption: caption,
       file_size: fileSize,
       created_at: new Date().toISOString(),

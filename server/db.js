@@ -121,6 +121,36 @@ const db = {
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(user1_id, user2_id);
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
       `);
+
+      // Автоматическая миграция существующей SQLite таблицы images (снятие NOT NULL)
+      try {
+        const tableInfo = sqliteDb.prepare("PRAGMA table_info(images);").all();
+        const fileUrlCol = tableInfo.find(c => c.name === 'file_url');
+        if (fileUrlCol && fileUrlCol.notnull === 1) {
+          sqliteDb.exec(`
+            CREATE TABLE IF NOT EXISTS images_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              sender_id INTEGER NOT NULL,
+              receiver_id INTEGER NOT NULL,
+              file_url TEXT,
+              original_name TEXT,
+              caption TEXT,
+              file_size INTEGER,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
+              FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            INSERT INTO images_new SELECT id, sender_id, receiver_id, file_url, original_name, caption, file_size, created_at FROM images;
+            DROP TABLE images;
+            ALTER TABLE images_new RENAME TO images;
+            CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
+          `);
+          console.log('✅ SQLite images таблица успешно мигрирована на поддержку чисто текстовых сообщений');
+        }
+      } catch (migErr) {
+        // Таблица уже создана правильно
+      }
+
       console.log('✅ Таблицы SQLite готовы (поддержка текста и фото)');
     }
   },
