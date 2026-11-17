@@ -13,7 +13,6 @@ import { LightboxModal } from './components/LightboxModal';
 import { NotificationToast } from './components/NotificationToast';
 import { 
   Images, 
-  ShieldCheck, 
   UserPlus, 
   Zap, 
   Sparkles, 
@@ -120,7 +119,7 @@ function MainApp() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="h-[100dvh] w-full bg-slate-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center animate-spin">
             <Images className="w-6 h-6 text-white" />
@@ -132,21 +131,23 @@ function MainApp() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 font-sans">
+    <div className="h-[100dvh] max-h-[100dvh] flex flex-col bg-slate-950 text-slate-100 font-sans overflow-hidden select-none">
       
-      {/* Навигационная панель */}
-      <Navbar
-        onOpenAuth={() => setIsAuthOpen(true)}
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onOpenRequests={() => setIsRequestsOpen(true)}
-        requestsCount={requestsCount}
-        activeView={activeView}
-        setActiveView={setActiveView}
-      />
+      {/* Навигационная панель (всегда закреплена вверху) */}
+      <div className="shrink-0 z-40">
+        <Navbar
+          onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenSearch={() => setIsSearchOpen(true)}
+          onOpenRequests={() => setIsRequestsOpen(true)}
+          requestsCount={requestsCount}
+          activeView={activeView}
+          setActiveView={setActiveView}
+        />
+      </div>
 
       {/* Основной контент */}
       {isAuthenticated ? (
-        <main className="flex-1 flex overflow-hidden h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)]">
+        <main className="flex-1 min-h-0 flex overflow-hidden w-full relative">
           {activeView === 'feed' ? (
             <FeedView
               onSelectFriend={(friend) => {
@@ -157,9 +158,7 @@ function MainApp() {
             />
           ) : (
             <>
-              {/* Сайдбар со списком друзей:
-                  - На мобильном виден, если друг НЕ выбран
-                  - На планшете/ПК виден ВСЕГДА */}
+              {/* Сайдбар со списком друзей */}
               <FriendsSidebar
                 friends={friends}
                 selectedFriend={selectedFriend}
@@ -168,14 +167,12 @@ function MainApp() {
                 loading={loadingFriends}
                 className={`${
                   selectedFriend ? 'hidden md:flex' : 'flex w-full'
-                } md:w-80 lg:w-96`}
+                } md:w-80 lg:w-96 min-h-0 h-full overflow-hidden shrink-0`}
               />
 
-              {/* Окно диалога:
-                  - На мобильном видно, если друг ВЫБРАН
-                  - На планшете/ПК занимает оставшееся пространство */}
+              {/* Окно диалога с независимой прокруткой сообщений */}
               {selectedFriend ? (
-                <div className={`flex-1 flex flex-col h-full ${selectedFriend ? 'flex' : 'hidden md:flex'}`}>
+                <div className={`flex-1 min-h-0 flex flex-col h-full overflow-hidden ${selectedFriend ? 'flex' : 'hidden md:flex'}`}>
                   <ImageChat
                     friend={selectedFriend}
                     onFriendRemoved={handleFriendRemoved}
@@ -184,7 +181,7 @@ function MainApp() {
                   />
                 </div>
               ) : (
-                <div className="flex-1 hidden md:flex flex-col items-center justify-center text-center p-8 bg-slate-950">
+                <div className="flex-1 min-h-0 hidden md:flex flex-col items-center justify-center text-center p-8 bg-slate-950 h-full overflow-hidden">
                   <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mb-4">
                     <Images className="w-8 h-8 sm:w-10 sm:h-10" />
                   </div>
@@ -205,8 +202,8 @@ function MainApp() {
           )}
         </main>
       ) : (
-        /* Приветственный лендинг */
-        <main className="flex-1 flex items-center justify-center p-4 sm:p-8">
+        /* Приветственный лендинг (прокручиваемый) */
+        <main className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center p-4 sm:p-8">
           <div className="max-w-4xl w-full text-center py-6 sm:py-12 px-2 sm:px-4">
             
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold mb-6 animate-pulse">
@@ -298,6 +295,7 @@ function MainApp() {
         onClose={() => setLightboxImage(null)}
       />
 
+      {/* Всплывающие уведомления */}
       <NotificationToast
         onOpenRequests={() => setIsRequestsOpen(true)}
         onSelectFriend={(friend) => {
