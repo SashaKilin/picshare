@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSocket } from '../context/SocketContext';
-import { Search, UserPlus, Image, Users, Sparkles, MessageCircle } from 'lucide-react';
+import { Search, UserPlus, Image, Users, Sparkles } from 'lucide-react';
 
 export function FriendsSidebar({
   friends = [],
@@ -8,6 +8,7 @@ export function FriendsSidebar({
   onSelectFriend,
   onOpenSearch,
   loading = false,
+  className = '',
 }) {
   const [filter, setFilter] = useState('');
   const { onlineUsers, unreadMap } = useSocket();
@@ -18,11 +19,11 @@ export function FriendsSidebar({
   );
 
   return (
-    <aside className="w-full md:w-80 lg:w-96 flex flex-col border-r border-slate-800 bg-slate-900/50 shrink-0 h-full">
+    <aside className={`flex flex-col border-r border-slate-800 bg-slate-900/50 shrink-0 h-full ${className}`}>
       
       {/* Шапка сайдбара */}
-      <div className="p-4 border-b border-slate-800">
-        <div className="flex items-center justify-between mb-3">
+      <div className="p-3 sm:p-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center justify-between mb-2.5 sm:mb-3">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-indigo-400" />
             <h3 className="font-bold text-sm text-white">Мои друзья</h3>
@@ -33,7 +34,7 @@ export function FriendsSidebar({
 
           <button
             onClick={onOpenSearch}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 text-xs font-semibold transition"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 border border-indigo-500/20 text-xs font-semibold transition touch-manipulation active:scale-95"
           >
             <UserPlus className="w-3.5 h-3.5" />
             <span>Добавить</span>
@@ -48,7 +49,7 @@ export function FriendsSidebar({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Поиск по друзьям..."
-            className="w-full bg-slate-800/80 border border-slate-700/60 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition"
+            className="w-full bg-slate-800/80 border border-slate-700/60 rounded-xl pl-9 pr-3 py-2 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition"
           />
         </div>
       </div>
@@ -74,7 +75,7 @@ export function FriendsSidebar({
             </div>
             <button
               onClick={onOpenSearch}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition touch-manipulation active:scale-95"
             >
               <UserPlus className="w-3.5 h-3.5" />
               <span>Найти первых друзей</span>
@@ -84,7 +85,7 @@ export function FriendsSidebar({
 
         {!loading && friends.length > 0 && filteredFriends.length === 0 && (
           <div className="p-6 text-center text-xs text-slate-500">
-            Никого не найдено по запросу «{filter}»
+            Никого не найдено
           </div>
         )}
 
@@ -97,13 +98,12 @@ export function FriendsSidebar({
             <button
               key={friend.id}
               onClick={() => onSelectFriend(friend)}
-              className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all relative ${
+              className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all touch-manipulation active:scale-[0.99] ${
                 isSelected
                   ? 'bg-indigo-600/20 border border-indigo-500/40 text-white shadow-sm'
                   : 'hover:bg-slate-800/60 border border-transparent text-slate-300'
               }`}
             >
-              {/* Аватар со статусом онлайн */}
               <div className="relative shrink-0">
                 <img
                   src={friend.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${friend.username}`}
@@ -118,7 +118,6 @@ export function FriendsSidebar({
                 />
               </div>
 
-              {/* Информация */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-1">
                   <span className="font-semibold text-sm truncate text-slate-200">

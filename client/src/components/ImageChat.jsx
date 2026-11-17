@@ -8,14 +8,13 @@ import {
   Trash2, 
   Download, 
   X, 
-  Smile, 
   MoreVertical, 
   UploadCloud, 
-  Sparkles, 
   AlertCircle,
   FileImage,
   UserMinus,
-  RefreshCw
+  ArrowLeft,
+  Camera
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -23,6 +22,7 @@ export function ImageChat({
   friend,
   onFriendRemoved,
   onOpenLightbox,
+  onBack,
 }) {
   const { user } = useAuth();
   const { socket, onlineUsers, markAsRead, setActiveFriendId } = useSocket();
@@ -44,7 +44,6 @@ export function ImageChat({
   const chatContainerRef = useRef(null);
   const latestImageIdRef = useRef(0);
 
-  // Устанавливаем текущего активного друга для сокетов
   useEffect(() => {
     if (friend?.id) {
       setActiveFriendId(Number(friend.id));
@@ -55,7 +54,6 @@ export function ImageChat({
     };
   }, [friend?.id]);
 
-  // Загрузка истории картинок при смене друга
   useEffect(() => {
     if (!friend?.id) return;
 
@@ -87,7 +85,7 @@ export function ImageChat({
     };
   }, [friend?.id]);
 
-  // 1. Мгновенное обновление через Socket.IO в реальном времени
+  // Socket.IO
   useEffect(() => {
     if (!socket || !friend?.id) return;
 
@@ -120,8 +118,7 @@ export function ImageChat({
     };
   }, [socket, friend?.id, user?.id]);
 
-  // 2. Фоновое автообновление (Polling fallback каждые 2.5 секунды)
-  // Гарантирует автоматическое обновление даже если сокет временно потерял соединение!
+  // Polling fallback
   useEffect(() => {
     if (!friend?.id) return;
 
@@ -138,9 +135,7 @@ export function ImageChat({
             scrollToBottom();
           }
         }
-      } catch (e) {
-        // Фоновая ошибка не прерывает работу
-      }
+      } catch (e) {}
     }, 2500);
 
     return () => clearInterval(interval);
@@ -152,12 +147,11 @@ export function ImageChat({
     }, 80);
   }
 
-  // Обработка выбора файла
   function handleFileSelect(file) {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      setError('Пожалуйста, выберите файл изображения (PNG, JPG, WebP, GIF)');
+      setError('Пожалуйста, выберите изображение (PNG, JPG, WebP, GIF)');
       return;
     }
 
@@ -172,7 +166,6 @@ export function ImageChat({
     setPreviewUrl(objectUrl);
   }
 
-  // Вставка из буфера обмена (Ctrl + V)
   useEffect(() => {
     function handlePaste(e) {
       const items = e.clipboardData?.items;
@@ -191,7 +184,6 @@ export function ImageChat({
     return () => window.removeEventListener('paste', handlePaste);
   }, []);
 
-  // Drag & drop обработчики
   function handleDragOver(e) {
     e.preventDefault();
     setIsDragging(true);
@@ -222,7 +214,6 @@ export function ImageChat({
     }
   }
 
-  // Отправка картинки
   async function handleSendImage(e) {
     if (e) e.preventDefault();
     if (!selectedFile || sending) return;
@@ -240,7 +231,6 @@ export function ImageChat({
     try {
       const res = await api.sendImage(formData);
       clearSelectedFile();
-      // Оптимистично добавляем, если еще не добавлен через socket
       if (res.image) {
         setImages((prev) => {
           if (prev.some((img) => img.id === res.image.id)) return prev;
@@ -249,7 +239,7 @@ export function ImageChat({
         });
       }
       scrollToBottom();
-      confetti({ particleCount: 35, spread: 50, origin: { y: 0.85 } });
+      confetti({ particleCount: 30, spread: 45, origin: { y: 0.85 } });
     } catch (err) {
       setError(err.message || 'Не удалось отправить картинку');
     } finally {
@@ -257,9 +247,8 @@ export function ImageChat({
     }
   }
 
-  // Удаление картинки
   async function handleDeleteImage(imageId) {
-    if (!confirm('Вы уверены, что хотите удалить эту картинку?')) return;
+    if (!confirm('Удалить эту картинку?')) return;
     try {
       await api.deleteImage(imageId);
       setImages((prev) => prev.filter((img) => img.id !== imageId));
@@ -268,9 +257,8 @@ export function ImageChat({
     }
   }
 
-  // Удаление из друзей
   async function handleRemoveFriend() {
-    if (!confirm(`Удалить ${friend.username} из друзей? Обмен картинками будет прекращен.`)) return;
+    if (!confirm(`Удалить ${friend.username} из друзей?`)) return;
     try {
       await api.removeFriend(friend.id);
       if (onFriendRemoved) onFriendRemoved(friend.id);
@@ -289,49 +277,56 @@ export function ImageChat({
       onDrop={handleDrop}
     >
       
-      {/* Оверлей при Drag & Drop */}
+      {/* Drag & Drop Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 z-30 bg-indigo-950/85 backdrop-blur-sm border-2 border-dashed border-indigo-400 flex flex-col items-center justify-center pointer-events-none animate-fadeIn">
+        <div className="absolute inset-0 z-30 bg-indigo-950/90 backdrop-blur-sm border-2 border-dashed border-indigo-400 flex flex-col items-center justify-center pointer-events-none animate-fadeIn">
           <div className="p-4 rounded-3xl bg-indigo-600/30 text-indigo-300 mb-3 animate-bounce">
             <UploadCloud className="w-12 h-12" />
           </div>
-          <p className="text-lg font-bold text-white">Перетащите картинку сюда</p>
-          <p className="text-xs text-indigo-300 mt-1">Она сразу прикрепится к отправке</p>
+          <p className="text-base sm:text-lg font-bold text-white">Перетащите картинку сюда</p>
         </div>
       )}
 
       {/* Шапка чата */}
-      <div className="h-16 px-4 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="relative">
+      <div className="h-14 sm:h-16 px-3 sm:px-4 border-b border-slate-800 bg-slate-900/60 backdrop-blur flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          
+          {/* Кнопка Назад на мобильном */}
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="p-1.5 -ml-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 md:hidden transition shrink-0"
+              title="Назад к списку друзей"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+
+          <div className="relative shrink-0">
             <img
               src={friend?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${friend?.username}`}
               alt={friend?.username}
-              className="w-10 h-10 rounded-full border border-slate-700 object-cover bg-slate-800"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-700 object-cover bg-slate-800"
             />
             <span
               className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
-                isOnline ? 'bg-emerald-500 ring-2 ring-emerald-500/20' : 'bg-slate-600'
+                isOnline ? 'bg-emerald-500' : 'bg-slate-600'
               }`}
             />
           </div>
-          <div>
-            <div className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
-              <span>{friend?.username}</span>
-              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
-                В друзьях
-              </span>
+
+          <div className="min-w-0">
+            <div className="font-bold text-sm text-slate-100 flex items-center gap-1.5 truncate">
+              <span className="truncate">{friend?.username}</span>
             </div>
-            <div className="text-xs text-slate-400 flex items-center gap-1.5">
-              <span>{isOnline ? 'В сети' : 'Не в сети'}</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-[11px] text-indigo-400/80">Автообновление активно</span>
+            <div className="text-[11px] text-slate-400 truncate">
+              {isOnline ? 'В сети' : 'Не в сети'}
             </div>
           </div>
         </div>
 
         {/* Меню действий */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             onClick={() => setShowMenu(!showMenu)}
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
@@ -340,7 +335,7 @@ export function ImageChat({
           </button>
 
           {showMenu && (
-            <div className="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl p-1 z-20">
+            <div className="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl p-1 z-30">
               <button
                 onClick={() => {
                   setShowMenu(false);
@@ -358,7 +353,7 @@ export function ImageChat({
 
       {/* Ошибка */}
       {error && (
-        <div className="p-3 mx-4 mt-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
+        <div className="p-2.5 mx-3 mt-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{error}</span>
@@ -372,7 +367,7 @@ export function ImageChat({
       {/* Область сообщений / галерея картинок */}
       <div 
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6"
+        className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6"
       >
         {loading && (
           <div className="flex items-center justify-center h-full text-xs text-slate-500 animate-pulse">
@@ -381,14 +376,14 @@ export function ImageChat({
         )}
 
         {!loading && images.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
-            <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
-              <FileImage className="w-8 h-8" />
+          <div className="h-full flex flex-col items-center justify-center text-center p-4 space-y-3">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
+              <FileImage className="w-7 h-7 sm:w-8 sm:h-8" />
             </div>
             <div>
-              <h4 className="font-bold text-slate-200 text-base">Обмен картинками открыт!</h4>
-              <p className="text-xs text-slate-400 max-w-sm mt-1">
-                Вы добавили друг друга в друзья. Прикрепите фото или вставьте его через <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Ctrl + V</kbd>, чтобы отправить первую картинку!
+              <h4 className="font-bold text-slate-200 text-sm sm:text-base">Обмен картинками открыт!</h4>
+              <p className="text-xs text-slate-400 max-w-xs sm:max-w-sm mt-1">
+                Прикрепите фото или сделайте снимок на камеру, чтобы отправить первую картинку!
               </p>
             </div>
           </div>
@@ -401,11 +396,10 @@ export function ImageChat({
           return (
             <div
               key={img.id}
-              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group animate-fadeIn`}
+              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group animate-fadeIn w-full`}
             >
-              {/* Информация об авторе */}
-              <div className="flex items-center gap-2 mb-1 px-1">
-                <span className="text-xs font-semibold text-slate-400">
+              <div className="flex items-center gap-1.5 mb-1 px-1">
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-400">
                   {isMe ? 'Вы' : img.sender_username || friend.username}
                 </span>
                 <span className="text-[10px] text-slate-600">
@@ -414,57 +408,50 @@ export function ImageChat({
               </div>
 
               {/* Тело карточки картинки */}
-              <div className="relative max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-xl transition-all duration-200 group-hover:border-slate-700">
+              <div className="relative w-full max-w-[85%] sm:max-w-md rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-xl transition-all">
                 
                 {/* Изображение */}
                 <div 
-                  className="cursor-pointer overflow-hidden bg-slate-950 max-h-[420px] flex items-center justify-center relative"
+                  className="cursor-pointer overflow-hidden bg-slate-950 max-h-[350px] sm:max-h-[420px] flex items-center justify-center relative active:opacity-90"
                   onClick={() => onOpenLightbox(img)}
                 >
                   <img
                     src={img.file_url}
                     alt={img.original_name}
-                    className="w-full h-auto max-h-[420px] object-cover hover:scale-[1.02] transition-transform duration-300"
+                    className="w-full h-auto max-h-[350px] sm:max-h-[420px] object-cover"
                     loading="lazy"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-3">
-                    <span className="text-[11px] text-white font-medium bg-slate-900/80 px-2 py-0.5 rounded-md backdrop-blur-sm">
-                      Нажмите для просмотра
-                    </span>
-                  </div>
                 </div>
 
-                {/* Подпись (если есть) */}
+                {/* Подпись */}
                 {img.caption && (
-                  <div className="p-3 bg-slate-900/95 border-t border-slate-800 text-xs text-slate-200 break-words">
+                  <div className="p-2.5 sm:p-3 bg-slate-900/95 border-t border-slate-800 text-xs sm:text-sm text-slate-200 break-words">
                     {img.caption}
                   </div>
                 )}
 
                 {/* Нижняя панель действий */}
-                <div className="px-3 py-1.5 bg-slate-900/80 border-t border-slate-800/60 flex items-center justify-between text-slate-400 text-xs">
+                <div className="px-2.5 sm:px-3 py-1.5 bg-slate-900/80 border-t border-slate-800/60 flex items-center justify-between text-slate-400 text-xs">
                   <span className="text-[10px] text-slate-500">
                     {(img.file_size / (1024 * 1024)).toFixed(2)} МБ
                   </span>
 
                   <div className="flex items-center gap-1">
-                    {/* Скачать */}
                     <a
                       href={img.file_url}
                       download={img.original_name}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1.5 rounded-lg hover:text-white hover:bg-slate-800 transition"
+                      className="p-1.5 rounded-lg hover:text-white hover:bg-slate-800 transition touch-manipulation"
                       title="Скачать оригинал"
                     >
                       <Download className="w-3.5 h-3.5" />
                     </a>
 
-                    {/* Удалить (только если автор) */}
                     {isMe && (
                       <button
                         onClick={() => handleDeleteImage(img.id)}
-                        className="p-1.5 rounded-lg hover:text-rose-400 hover:bg-rose-500/10 transition"
+                        className="p-1.5 rounded-lg hover:text-rose-400 hover:bg-rose-500/10 transition touch-manipulation"
                         title="Удалить картинку"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -483,8 +470,8 @@ export function ImageChat({
 
       {/* Превью выбранного изображения перед отправкой */}
       {previewUrl && (
-        <div className="p-3 bg-slate-900/90 border-t border-slate-800 flex items-center gap-4">
-          <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-indigo-500/50 shrink-0">
+        <div className="p-2.5 sm:p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-3">
+          <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-indigo-500/50 shrink-0">
             <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
             <button
               onClick={clearSelectedFile}
@@ -497,8 +484,8 @@ export function ImageChat({
             <p className="text-xs font-semibold text-slate-200 truncate">
               {selectedFile?.name}
             </p>
-            <p className="text-[11px] text-slate-400">
-              {(selectedFile?.size / (1024 * 1024)).toFixed(2)} МБ — готово к отправке
+            <p className="text-[10px] text-slate-400">
+              Готово к отправке
             </p>
           </div>
         </div>
@@ -507,7 +494,7 @@ export function ImageChat({
       {/* Панель ввода и отправки */}
       <form 
         onSubmit={handleSendImage}
-        className="p-3 bg-slate-900/60 border-t border-slate-800 flex items-center gap-2"
+        className="p-2 sm:p-3 bg-slate-900/90 border-t border-slate-800 flex items-center gap-2 safe-bottom"
       >
         <input
           type="file"
@@ -517,14 +504,14 @@ export function ImageChat({
           className="hidden"
         />
 
-        {/* Кнопка прикрепления файла */}
+        {/* Кнопка выбора фото/камеры */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60 transition shrink-0"
-          title="Выбрать картинку с компьютера"
+          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-indigo-400 border border-slate-700/60 transition shrink-0 touch-manipulation"
+          title="Прикрепить фото или сделать снимок"
         >
-          <ImageIcon className="w-4 h-4 text-indigo-400" />
+          <Camera className="w-5 h-5 sm:w-4 sm:h-4" />
         </button>
 
         {/* Поле для ввода комментария/подписи */}
@@ -533,8 +520,8 @@ export function ImageChat({
             type="text"
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
-            placeholder={selectedFile ? 'Добавьте подпись к картинке...' : 'Выберите или вставьте (Ctrl+V) картинку...'}
-            className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition"
+            placeholder={selectedFile ? 'Подпись к фото...' : 'Прикрепите фото или вставьте...'}
+            className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3.5 py-2 text-base sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition"
           />
         </div>
 
@@ -542,10 +529,10 @@ export function ImageChat({
         <button
           type="submit"
           disabled={!selectedFile || sending}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-indigo-600/30 transition disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          className="p-2.5 sm:px-4 sm:py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-semibold shadow-md transition disabled:opacity-40 shrink-0 touch-manipulation active:scale-95 flex items-center gap-1.5"
         >
           <Send className="w-4 h-4" />
-          <span className="hidden sm:inline">{sending ? 'Отправка...' : 'Отправить'}</span>
+          <span className="hidden sm:inline text-xs">{sending ? 'Отправка...' : 'Отправить'}</span>
         </button>
       </form>
 

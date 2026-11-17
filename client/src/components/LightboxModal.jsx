@@ -14,15 +14,15 @@ export function LightboxModal({ image, onClose }) {
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/95 backdrop-blur-md animate-fadeIn"
       onClick={onClose}
     >
       <div 
-        className="relative max-w-5xl max-h-[90vh] w-full flex flex-col bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl"
+        className="relative max-w-5xl max-h-[96dvh] w-full flex flex-col bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Верхняя плашка */}
-        <div className="p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between z-10 shrink-0">
+        <div className="p-3 sm:p-4 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between z-10 shrink-0">
           <div className="flex items-center gap-3">
             <img
               src={image.sender_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${image.sender_username}`}
