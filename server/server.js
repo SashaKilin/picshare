@@ -13,6 +13,7 @@ const authRoutes = require('./routes/auth');
 const friendsRoutes = require('./routes/friends');
 const imagesRoutes = require('./routes/images');
 const usersRoutes = require('./routes/users');
+const groupsRoutes = require('./routes/groups');
 
 const app = express();
 const server = http.createServer(app);
@@ -91,6 +92,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/friends', friendsRoutes);
 app.use('/api/images', imagesRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/groups', groupsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

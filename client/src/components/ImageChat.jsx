@@ -16,7 +16,8 @@ import {
   Camera,
   ArrowDown,
   User,
-  Reply
+  Reply,
+  Users
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -133,13 +134,18 @@ function SwipeableMessage({ onReply, children, isMe }) {
 
 export function ImageChat({
   friend,
+  group,
   onFriendRemoved,
   onOpenLightbox,
   onBack,
   onOpenProfile,
+  onOpenGroupInfo,
 }) {
   const { user } = useAuth();
   const { socket, onlineUsers, markAsRead, setActiveFriendId } = useSocket();
+
+  const isGroup = Boolean(group);
+  const targetId = isGroup ? group.id : friend?.id;
 
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -170,24 +176,29 @@ export function ImageChat({
   const isNearBottomRef = useRef(true);
 
   useEffect(() => {
-    if (friend?.id) {
+    if (!isGroup && friend?.id) {
       setActiveFriendId(Number(friend.id));
       markAsRead(Number(friend.id));
     }
     return () => {
       setActiveFriendId(null);
     };
-  }, [friend?.id]);
+  }, [friend?.id, isGroup]);
 
   useEffect(() => {
-    if (!friend?.id) return;
+    if (!targetId) return;
 
     let mounted = true;
     setLoading(true);
     setError('');
     setNewUnreadCount(0);
+    setReplyingTo(null);
 
-    api.getChatImages(friend.id)
+    const loadAction = isGroup 
+      ? api.getGroupChatImages(group.id)
+      : api.getChatImages(friend.id);
+
+    loadAction
       .then((data) => {
         if (mounted) {
           const loadedImages = data.images || [];
@@ -209,30 +220,48 @@ export function ImageChat({
     return () => {
       mounted = false;
     };
-  }, [friend?.id]);
+  }, [targetId, isGroup]);
 
   // Socket.IO
   useEffect(() => {
-    if (!socket || !friend?.id) return;
+    if (!socket || !targetId) return;
 
     const handleNewImage = (newImg) => {
-      const sId = Number(newImg.sender_id);
-      const rId = Number(newImg.receiver_id);
-      const fId = Number(friend.id);
       const myId = Number(user.id);
 
-      if ((sId === fId && rId === myId) || (sId === myId && rId === fId)) {
-        setImages((prev) => {
-          if (prev.some((img) => img.id === newImg.id)) return prev;
-          latestImageIdRef.current = Math.max(latestImageIdRef.current, newImg.id);
-          return [...prev, newImg];
-        });
+      if (isGroup) {
+        if (Number(newImg.group_id) === Number(group.id)) {
+          setImages((prev) => {
+            if (prev.some((img) => img.id === newImg.id)) return prev;
+            latestImageIdRef.current = Math.max(latestImageIdRef.current, newImg.id);
+            return [...prev, newImg];
+          });
 
-        if (isNearBottomRef.current || sId === myId) {
-          scrollToBottom(true);
-        } else {
-          setNewUnreadCount((c) => c + 1);
-          setShowScrollBottom(true);
+          if (isNearBottomRef.current || Number(newImg.sender_id) === myId) {
+            scrollToBottom(true);
+          } else {
+            setNewUnreadCount((c) => c + 1);
+            setShowScrollBottom(true);
+          }
+        }
+      } else {
+        const sId = Number(newImg.sender_id);
+        const rId = Number(newImg.receiver_id);
+        const fId = Number(friend.id);
+
+        if (!newImg.group_id && ((sId === fId && rId === myId) || (sId === myId && rId === fId))) {
+          setImages((prev) => {
+            if (prev.some((img) => img.id === newImg.id)) return prev;
+            latestImageIdRef.current = Math.max(latestImageIdRef.current, newImg.id);
+            return [...prev, newImg];
+          });
+
+          if (isNearBottomRef.current || sId === myId) {
+            scrollToBottom(true);
+          } else {
+            setNewUnreadCount((c) => c + 1);
+            setShowScrollBottom(true);
+          }
         }
       }
     };
@@ -386,7 +415,11 @@ export function ImageChat({
     if (hasFile) {
       formData.append('image', selectedFile);
     }
-    formData.append('receiverId', friend.id);
+    if (isGroup) {
+      formData.append('groupId', group.id);
+    } else {
+      formData.append('receiverId', friend.id);
+    }
     if (hasText) {
       formData.append('caption', caption.trim());
     }
@@ -419,7 +452,7 @@ export function ImageChat({
   }
 
   function handleStartReply(img) {
-    const senderName = img.sender_username || (Number(img.sender_id) === Number(user.id) ? user.username : friend.username);
+    const senderName = img.sender_username || (Number(img.sender_id) === Number(user.id) ? user.username : (isGroup ? 'Участник' : friend?.username));
     setReplyingTo({
       id: img.id,
       sender_id: img.sender_id,
@@ -506,35 +539,64 @@ export function ImageChat({
             </button>
           )}
 
-          <div 
-            onClick={() => onOpenProfile && onOpenProfile(friend?.id)}
-            className="flex items-center gap-2.5 sm:gap-3 min-w-0 cursor-pointer hover:opacity-85 transition group"
-            title="Открыть профиль пользователя"
-          >
-            <div className="relative shrink-0">
-              <img
-                src={friend?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${friend?.username}`}
-                alt={friend?.username}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-700 object-cover bg-slate-800 group-hover:border-indigo-400"
-              />
-              <span
-                className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
-                  isOnline ? 'bg-emerald-500' : 'bg-slate-600'
-                }`}
-              />
-            </div>
+          {isGroup ? (
+            /* Шапка для Группового чата */
+            <div 
+              onClick={() => onOpenGroupInfo && onOpenGroupInfo(group)}
+              className="flex items-center gap-2.5 sm:gap-3 min-w-0 cursor-pointer hover:opacity-85 transition group"
+              title="Информация о группе и участники"
+            >
+              <div className="relative shrink-0">
+                <img
+                  src={group?.avatar || `https://api.dicebear.com/7.x/identicon/svg?seed=${group?.name}`}
+                  alt={group?.name}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl border border-indigo-500/40 object-cover bg-slate-800 shadow group-hover:border-indigo-400"
+                />
+              </div>
 
-            <div className="min-w-0">
-              <div className="font-bold text-sm text-slate-100 flex items-center gap-2 truncate">
-                <span className="truncate group-hover:text-indigo-300">{friend?.username}</span>
-              </div>
-              <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
-                <span>{isOnline ? 'В сети' : 'Не в сети'}</span>
-                <span className="text-slate-600">•</span>
-                <span className="text-indigo-400/80">Профиль и фото</span>
+              <div className="min-w-0">
+                <div className="font-bold text-sm text-slate-100 flex items-center gap-2 truncate">
+                  <span className="truncate group-hover:text-indigo-300">{group?.name}</span>
+                </div>
+                <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
+                  <span className="text-indigo-400 font-medium">{group?.members_count || 1} участников</span>
+                  <span className="text-slate-600">•</span>
+                  <span>Групповой чат</span>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            /* Шапка для диалога 1-на-1 */
+            <div 
+              onClick={() => onOpenProfile && onOpenProfile(friend?.id)}
+              className="flex items-center gap-2.5 sm:gap-3 min-w-0 cursor-pointer hover:opacity-85 transition group"
+              title="Открыть профиль пользователя"
+            >
+              <div className="relative shrink-0">
+                <img
+                  src={friend?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${friend?.username}`}
+                  alt={friend?.username}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-700 object-cover bg-slate-800 group-hover:border-indigo-400"
+                />
+                <span
+                  className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
+                    isOnline ? 'bg-emerald-500' : 'bg-slate-600'
+                  }`}
+                />
+              </div>
+
+              <div className="min-w-0">
+                <div className="font-bold text-sm text-slate-100 flex items-center gap-2 truncate">
+                  <span className="truncate group-hover:text-indigo-300">{friend?.username}</span>
+                </div>
+                <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
+                  <span>{isOnline ? 'В сети' : 'Не в сети'}</span>
+                  <span className="text-slate-600">•</span>
+                  <span className="text-indigo-400/80">Профиль и фото</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Меню действий */}
@@ -547,27 +609,42 @@ export function ImageChat({
           </button>
 
           {showMenu && (
-            <div className="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl p-1 z-30">
-              <button
-                onClick={() => {
-                  setShowMenu(false);
-                  onOpenProfile && onOpenProfile(friend.id);
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl transition mb-1"
-              >
-                <User className="w-4 h-4 text-indigo-400" />
-                <span>Профиль</span>
-              </button>
-              <button
-                onClick={() => {
-                  setShowMenu(false);
-                  handleRemoveFriend();
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition"
-              >
-                <UserMinus className="w-4 h-4" />
-                <span>Удалить из друзей</span>
-              </button>
+            <div className="absolute right-0 top-full mt-1 w-52 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl p-1 z-30">
+              {isGroup ? (
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onOpenGroupInfo && onOpenGroupInfo(group);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl transition"
+                >
+                  <Users className="w-4 h-4 text-indigo-400" />
+                  <span>О группе и участники</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      onOpenProfile && onOpenProfile(friend?.id);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl transition mb-1"
+                  >
+                    <User className="w-4 h-4 text-indigo-400" />
+                    <span>Профиль</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      handleRemoveFriend();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition"
+                  >
+                    <UserMinus className="w-4 h-4" />
+                    <span>Удалить из друзей</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -638,9 +715,20 @@ export function ImageChat({
                 className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group animate-fadeIn w-full`}
               >
                 
-                <div className="flex items-center gap-1.5 mb-1 px-1">
-                  <span className="text-[11px] sm:text-xs font-semibold text-slate-400">
-                    {isMe ? 'Вы' : img.sender_username || friend.username}
+                <div 
+                  onClick={() => (!isMe && onOpenProfile) && onOpenProfile(img.sender_id)}
+                  className={`flex items-center gap-1.5 mb-1 px-1 ${(!isMe && isGroup) ? 'cursor-pointer hover:opacity-85 group/author' : ''}`}
+                  title={!isMe && isGroup ? 'Посмотреть профиль автора' : undefined}
+                >
+                  {!isMe && isGroup && (
+                    <img
+                      src={img.sender_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${img.sender_username}`}
+                      alt={img.sender_username}
+                      className="w-4 h-4 rounded-full border border-slate-700 object-cover"
+                    />
+                  )}
+                  <span className={`text-[11px] sm:text-xs font-semibold ${!isMe && isGroup ? 'text-indigo-300 group-hover/author:underline' : 'text-slate-400'}`}>
+                    {isMe ? 'Вы' : img.sender_username || (isGroup ? 'Участник' : friend?.username)}
                   </span>
                   <span className="text-[10px] text-slate-600">
                     {new Date(img.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

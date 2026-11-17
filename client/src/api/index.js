@@ -67,9 +67,19 @@ export const api = {
   removeFriend: (friendId) => request(`/friends/${friendId}`, { method: 'DELETE' }),
   searchUsers: (q) => request(`/friends/search?q=${encodeURIComponent(q)}`),
 
+  // Groups
+  getGroups: () => request('/groups'),
+  getGroup: (groupId) => request(`/groups/${groupId}`),
+  createGroup: (groupData) => request('/groups', { method: 'POST', body: groupData }),
+  updateGroup: (groupId, groupData) => request(`/groups/${groupId}`, { method: 'PUT', body: groupData }),
+  addGroupMembers: (groupId, userIds) => request(`/groups/${groupId}/members`, { method: 'POST', body: { userIds } }),
+  removeGroupMember: (groupId, userId) => request(`/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
+  deleteGroup: (groupId) => request(`/groups/${groupId}`, { method: 'DELETE' }),
+
   // Images & Messages
   sendImage: (formData) => request('/images/send', { method: 'POST', body: formData }),
   getChatImages: (friendId) => request(`/images/chat/${friendId}`),
+  getGroupChatImages: (groupId) => request(`/images/chat/group/${groupId}`),
   deleteImage: (imageId) => request(`/images/${imageId}`, { method: 'DELETE' }),
   getFeed: () => request('/images/feed'),
 

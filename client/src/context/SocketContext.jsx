@@ -122,15 +122,18 @@ export function SocketProvider({ children }) {
         playNotificationSound();
 
         // Уведомление
+        const isGroup = Boolean(image.group_id);
         setNotification({
           type: 'new_image',
-          title: `Новая картинка от ${image.sender_username}!`,
-          message: image.caption || 'Прислал(а) вам изображение',
+          title: isGroup 
+            ? `Новое сообщение от ${image.sender_username}!`
+            : `Новая картинка от ${image.sender_username}!`,
+          message: image.caption || (image.image_url ? 'Прислал(а) изображение' : 'Новое сообщение'),
           image
         });
 
         // Если сейчас открыт не диалог с этим другом, увеличиваем счетчик непрочитанных
-        if (Number(activeFriendId) !== senderId) {
+        if (!isGroup && Number(activeFriendId) !== senderId) {
           setUnreadMap((prev) => ({
             ...prev,
             [senderId]: (prev[senderId] || 0) + 1
@@ -139,7 +142,7 @@ export function SocketProvider({ children }) {
 
         // Обновляем заголовок вкладки браузера
         if (document.hidden) {
-          document.title = `(1) Новая картинка от ${image.sender_username}!`;
+          document.title = `(1) Новое сообщение от ${image.sender_username}!`;
         }
       }
     });

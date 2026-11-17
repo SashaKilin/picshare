@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useSocket } from '../context/SocketContext';
 import { Bell, Image as ImageIcon, X, ArrowRight, UserCheck } from 'lucide-react';
 
-export function NotificationToast({ onOpenRequests, onSelectFriend }) {
+export function NotificationToast({ onOpenRequests, onSelectFriend, onSelectGroup }) {
   const { notification, clearNotification } = useSocket();
 
   useEffect(() => {
@@ -54,15 +54,19 @@ export function NotificationToast({ onOpenRequests, onSelectFriend }) {
             <button
               onClick={() => {
                 clearNotification();
-                onSelectFriend({
-                  id: notification.image.sender_id,
-                  username: notification.image.sender_username,
-                  avatar: notification.image.sender_avatar
-                });
+                if (notification.image.group_id && onSelectGroup) {
+                  onSelectGroup(notification.image.group_id);
+                } else if (onSelectFriend) {
+                  onSelectFriend({
+                    id: notification.image.sender_id,
+                    username: notification.image.sender_username,
+                    avatar: notification.image.sender_avatar
+                  });
+                }
               }}
               className="mt-2 text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
             >
-              <span>Открыть диалог</span>
+              <span>Открыть {notification.image.group_id ? 'группу' : 'диалог'}</span>
               <ArrowRight className="w-3 h-3" />
             </button>
           )}

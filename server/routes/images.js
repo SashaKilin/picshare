@@ -64,16 +64,17 @@ async function checkAreFriends(userA, userB) {
   return row && row.status === 'accepted';
 }
 
-// 1. Отправить сообщение (текст, фото или текст + фото)
+// 1. Отправить сообщение (текст, фото или текст + фото) — в ЛС или в Группу
 router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
   try {
     const senderId = req.user.id;
-    const receiverId = Number(req.body.receiverId);
+    const receiverId = req.body.receiverId ? Number(req.body.receiverId) : null;
+    const groupId = req.body.groupId ? Number(req.body.groupId) : null;
     const caption = (req.body.caption || '').trim();
 
-    if (!receiverId) {
+    if (!receiverId && !groupId) {
       if (req.file) fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: 'Не указан получатель' });
+      return res.status(400).json({ error: 'Не указан получатель или группа' });
     }
 
     // Должен быть либо текст сообщения, либо прикрепленная картинка
@@ -81,13 +82,27 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Введите текст сообщения или прикрепите изображение' });
     }
 
-    // Отправлять можно только взаимным друзьям!
-    const areFriends = await checkAreFriends(senderId, receiverId);
-    if (!areFriends) {
-      if (req.file) fs.unlinkSync(req.file.path);
-      return res.status(403).json({
-        error: 'Отправлять сообщения можно только взаимным друзьям! Сначала добавьте друг друга в друзья.'
-      });
+    let groupMembers = [];
+    if (groupId) {
+      // Проверяем, что отправитель состоит в группе
+      const membership = await db.get(
+        'SELECT id FROM group_members WHERE group_id = ? AND user_id = ?',
+        [groupId, senderId]
+      );
+      if (!membership) {
+        if (req.file) fs.unlinkSync(req.file.path);
+        return res.status(403).json({ error: 'Вы не состоите в этой группе' });
+      }
+      groupMembers = await db.all('SELECT user_id FROM group_members WHERE group_id = ?', [groupId]);
+    } else {
+      // Отправлять можно только взаимным друзьям!
+      const areFriends = await checkAreFriends(senderId, receiverId);
+      if (!areFriends) {
+        if (req.file) fs.unlinkSync(req.file.path);
+        return res.status(403).json({
+          error: 'Отправлять сообщения можно только взаимным друзьям! Сначала добавьте друг друга в друзья.'
+        });
+      }
     }
 
     let fileUrl = null;
@@ -140,14 +155,15 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
     }
 
     const result = await db.run(`
-      INSERT INTO images (sender_id, receiver_id, file_url, original_name, caption, file_size, reply_to_id) 
-      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
-    `, [senderId, receiverId, safeFileUrl, safeOriginalName, caption, fileSize, replyToId]);
+      INSERT INTO images (sender_id, receiver_id, group_id, file_url, original_name, caption, file_size, reply_to_id) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+    `, [senderId, receiverId, groupId, safeFileUrl, safeOriginalName, caption, fileSize, replyToId]);
 
     const newImage = {
       id: result.lastInsertRowid,
       sender_id: senderId,
       receiver_id: receiverId,
+      group_id: groupId,
       file_url: safeFileUrl,
       original_name: safeOriginalName,
       caption: caption,
@@ -161,8 +177,14 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
 
     const io = req.app.get('io');
     if (io) {
-      io.to(`user_${receiverId}`).emit('new_image', newImage);
-      io.to(`user_${senderId}`).emit('new_image', newImage);
+      if (groupId) {
+        groupMembers.forEach(m => {
+          io.to(`user_${m.user_id}`).emit('new_image', newImage);
+        });
+      } else {
+        io.to(`user_${receiverId}`).emit('new_image', newImage);
+        io.to(`user_${senderId}`).emit('new_image', newImage);
+      }
     }
 
     return res.status(201).json({
@@ -243,6 +265,88 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Ошибка получения сообщений:', err);
     return res.status(500).json({ error: 'Не удалось загрузить историю сообщений' });
+  }
+});
+
+// 2.1. Получить историю сообщений группы
+router.get('/chat/group/:groupId', requireAuth, async (req, res) => {
+  try {
+    const myId = req.user.id;
+    const groupId = Number(req.params.groupId);
+
+    const membership = await db.get(
+      'SELECT id FROM group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, myId]
+    );
+    if (!membership) {
+      return res.status(403).json({ error: 'Вы не состоите в этой группе' });
+    }
+
+    const group = await db.get(`
+      SELECT 
+        g.id,
+        g.name,
+        g.description,
+        g.avatar,
+        g.creator_id,
+        g.created_at,
+        (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id) AS members_count,
+        (CASE WHEN g.creator_id = ? THEN 1 ELSE 0 END) AS is_creator
+      FROM groups g
+      WHERE g.id = ?
+    `, [myId, groupId]);
+
+    const rows = await db.all(`
+      SELECT 
+        img.id,
+        img.sender_id,
+        img.receiver_id,
+        img.group_id,
+        img.file_url,
+        img.original_name,
+        img.caption,
+        img.file_size,
+        img.reply_to_id,
+        img.created_at,
+        u.username AS sender_username,
+        u.avatar AS sender_avatar,
+        rep.id AS reply_id,
+        rep.caption AS reply_caption,
+        rep.file_url AS reply_file_url,
+        rep_u.username AS reply_username
+      FROM images img
+      JOIN users u ON u.id = img.sender_id
+      LEFT JOIN images rep ON rep.id = img.reply_to_id
+      LEFT JOIN users rep_u ON rep_u.id = rep.sender_id
+      WHERE img.group_id = ?
+      ORDER BY img.created_at ASC
+    `, [groupId]);
+
+    const images = rows.map(r => ({
+      id: r.id,
+      sender_id: r.sender_id,
+      receiver_id: r.receiver_id,
+      group_id: r.group_id,
+      file_url: r.file_url,
+      original_name: r.original_name,
+      caption: r.caption,
+      file_size: r.file_size,
+      reply_to_id: r.reply_to_id,
+      reply_to: r.reply_id ? {
+        id: r.reply_id,
+        username: r.reply_username,
+        caption: r.reply_caption,
+        file_url: r.reply_file_url
+      } : null,
+      created_at: r.created_at,
+      sender_username: r.sender_username,
+      sender_avatar: r.sender_avatar
+    }));
+
+    return res.json({ group, images });
+  } catch (err) {
+    console.error('Ошибка получения сообщений группы:', err);
+    return res.status(500).json({ error: 'Не удалось загрузить историю сообщений группы' });
   }
 });
 

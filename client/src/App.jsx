@@ -13,6 +13,8 @@ import { LightboxModal } from './components/LightboxModal';
 import { NotificationToast } from './components/NotificationToast';
 import { ProfileModal } from './components/ProfileModal';
 import { EditProfileModal } from './components/EditProfileModal';
+import { CreateGroupModal } from './components/CreateGroupModal';
+import { GroupInfoModal } from './components/GroupInfoModal';
 import { 
   Images, 
   UserPlus, 
@@ -29,7 +31,9 @@ function MainApp() {
 
   const [activeView, setActiveView] = useState('chat'); // 'chat' | 'feed'
   const [friends, setFriends] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [selectedFriend, setSelectedFriend] = useState(null);
+  const [selectedGroup, setSelectedGroup] = useState(null);
   const [loadingFriends, setLoadingFriends] = useState(false);
   const [requestsCount, setRequestsCount] = useState(0);
 
@@ -37,6 +41,8 @@ function MainApp() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [groupInfoModalId, setGroupInfoModalId] = useState(null);
   const [lightboxImage, setLightboxImage] = useState(null);
   const [profileUserId, setProfileUserId] = useState(null);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -60,15 +66,18 @@ function MainApp() {
     window.scrollTo(0, 0);
     if (document.documentElement) document.documentElement.scrollTop = 0;
     if (document.body) document.body.scrollTop = 0;
-  }, [selectedFriend, activeView]);
+  }, [selectedFriend, selectedGroup, activeView]);
 
   useEffect(() => {
     if (isAuthenticated) {
       loadFriends();
+      loadGroups();
       loadRequestsCount();
     } else {
       setFriends([]);
+      setGroups([]);
       setSelectedFriend(null);
+      setSelectedGroup(null);
       setRequestsCount(0);
     }
   }, [isAuthenticated]);
@@ -90,16 +99,59 @@ function MainApp() {
       setSelectedFriend(null);
     };
 
+    const handleGroupCreated = (newGrp) => {
+      setGroups((prev) => {
+        if (prev.some((g) => g.id === newGrp.id)) return prev;
+        return [newGrp, ...prev];
+      });
+    };
+
+    const handleGroupUpdated = (updatedGrp) => {
+      setGroups((prev) => prev.map((g) => (g.id === updatedGrp.id ? { ...g, ...updatedGrp } : g)));
+      setSelectedGroup((prev) => (prev?.id === updatedGrp.id ? { ...prev, ...updatedGrp } : prev));
+    };
+
+    const handleGroupDeleted = ({ groupId }) => {
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+      setSelectedGroup((prev) => (prev?.id === groupId ? null : prev));
+    };
+
+    const handleRemovedFromGroup = ({ groupId }) => {
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+      setSelectedGroup((prev) => (prev?.id === groupId ? null : prev));
+    };
+
     socket.on('new_friend_request', handleReq);
     socket.on('friend_request_accepted', handleAccepted);
     socket.on('friend_removed', handleRemoved);
+    socket.on('group_created', handleGroupCreated);
+    socket.on('group_updated', handleGroupUpdated);
+    socket.on('group_members_updated', ({ groupId, members }) => {
+      setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, members_count: members.length } : g)));
+      setSelectedGroup((prev) => (prev?.id === groupId ? { ...prev, members_count: members.length } : prev));
+    });
+    socket.on('group_deleted', handleGroupDeleted);
+    socket.on('removed_from_group', handleRemovedFromGroup);
 
     return () => {
       socket.off('new_friend_request', handleReq);
       socket.off('friend_request_accepted', handleAccepted);
       socket.off('friend_removed', handleRemoved);
+      socket.off('group_created', handleGroupCreated);
+      socket.off('group_updated', handleGroupUpdated);
+      socket.off('group_deleted', handleGroupDeleted);
+      socket.off('removed_from_group', handleRemovedFromGroup);
     };
   }, [socket, isAuthenticated]);
+
+  async function loadGroups() {
+    try {
+      const data = await api.getGroups();
+      setGroups(data.groups || []);
+    } catch (err) {
+      console.error('Ошибка загрузки групп:', err);
+    }
+  }
 
   async function loadFriends() {
     setLoadingFriends(true);
@@ -129,6 +181,7 @@ function MainApp() {
     loadFriends();
     loadRequestsCount();
     if (friend) {
+      setSelectedGroup(null);
       setSelectedFriend(friend);
       setActiveView('chat');
     }
@@ -162,7 +215,7 @@ function MainApp() {
           - На мобильных в списке друзей и ленте видна ВСЕГДА
           - Внутри открытого чата скрывается для максимизации области переписки, 
             но при возврате назад (←) гарантированно восстанавливается на 100%! */}
-      <div className={`shrink-0 z-40 ${selectedFriend && activeView === 'chat' ? 'hidden md:block' : 'block'}`}>
+      <div className={`shrink-0 z-40 ${(selectedFriend || selectedGroup) && activeView === 'chat' ? 'hidden md:block' : 'block'}`}>
         <Navbar
           onOpenAuth={() => setIsAuthOpen(true)}
           onOpenSearch={() => setIsSearchOpen(true)}
@@ -180,6 +233,7 @@ function MainApp() {
           {activeView === 'feed' ? (
             <FeedView
               onSelectFriend={(friend) => {
+                setSelectedGroup(null);
                 setSelectedFriend(friend);
                 setActiveView('chat');
               }}
@@ -188,29 +242,42 @@ function MainApp() {
             />
           ) : (
             <>
-              {/* Сайдбар со списком друзей */}
+              {/* Сайдбар со списком друзей и групп */}
               <FriendsSidebar
                 friends={friends}
+                groups={groups}
                 selectedFriend={selectedFriend}
-                onSelectFriend={(friend) => setSelectedFriend(friend)}
+                selectedGroup={selectedGroup}
+                onSelectFriend={(friend) => {
+                  setSelectedGroup(null);
+                  setSelectedFriend(friend);
+                }}
+                onSelectGroup={(grp) => {
+                  setSelectedFriend(null);
+                  setSelectedGroup(grp);
+                }}
                 onOpenSearch={() => setIsSearchOpen(true)}
+                onOpenCreateGroup={() => setIsCreateGroupOpen(true)}
                 onOpenProfile={(id) => setProfileUserId(id)}
                 loading={loadingFriends}
                 className={`${
-                  selectedFriend ? 'hidden md:flex' : 'flex w-full'
+                  (selectedFriend || selectedGroup) ? 'hidden md:flex' : 'flex w-full'
                 } md:w-80 lg:w-96 min-h-0 h-full overflow-hidden shrink-0`}
               />
 
               {/* Окно диалога с независимой прокруткой сообщений */}
-              {selectedFriend ? (
-                <div className={`flex-1 min-h-0 flex flex-col h-full overflow-hidden ${selectedFriend ? 'flex' : 'hidden md:flex'}`}>
+              {selectedFriend || selectedGroup ? (
+                <div className={`flex-1 min-h-0 flex flex-col h-full overflow-hidden ${(selectedFriend || selectedGroup) ? 'flex' : 'hidden md:flex'}`}>
                   <ImageChat
                     friend={selectedFriend}
+                    group={selectedGroup}
                     onFriendRemoved={handleFriendRemoved}
                     onOpenLightbox={(img) => setLightboxImage(img)}
                     onOpenProfile={(id) => setProfileUserId(id)}
+                    onOpenGroupInfo={(grp) => setGroupInfoModalId(grp.id)}
                     onBack={() => {
                       setSelectedFriend(null);
+                      setSelectedGroup(null);
                       window.scrollTo(0, 0);
                       if (document.documentElement) document.documentElement.scrollTop = 0;
                       if (document.body) document.body.scrollTop = 0;
@@ -222,17 +289,26 @@ function MainApp() {
                   <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mb-4">
                     <Images className="w-8 h-8 sm:w-10 sm:h-10" />
                   </div>
-                  <h3 className="text-lg sm:text-xl font-bold text-white">Выберите друга для обмена картинками</h3>
+                  <h3 className="text-lg sm:text-xl font-bold text-white">Выберите чат или группу</h3>
                   <p className="text-xs text-slate-400 max-w-md mt-2">
-                    Выберите друга из списка слева или найдите новых знакомых, чтобы делиться фото и мемами.
+                    Выберите друга или группу из списка слева, либо создайте новую группу для совместного общения.
                   </p>
-                  <button
-                    onClick={() => setIsSearchOpen(true)}
-                    className="mt-6 flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/30 transition transform hover:-translate-y-0.5 active:scale-95"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span>Найти друзей</span>
-                  </button>
+                  <div className="flex items-center gap-3 mt-6">
+                    <button
+                      onClick={() => setIsSearchOpen(true)}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      <span>Найти друзей</span>
+                    </button>
+                    <button
+                      onClick={() => setIsCreateGroupOpen(true)}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/30 transition transform hover:-translate-y-0.5 active:scale-95"
+                    >
+                      <Users className="w-4 h-4" />
+                      <span>Создать группу</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </>
@@ -317,6 +393,7 @@ function MainApp() {
         onClose={() => setIsSearchOpen(false)}
         onOpenProfile={(id) => setProfileUserId(id)}
         onSelectFriend={(friend) => {
+          setSelectedGroup(null);
           setSelectedFriend(friend);
           setActiveView('chat');
         }}
@@ -333,6 +410,42 @@ function MainApp() {
         onClose={() => setLightboxImage(null)}
       />
 
+      {/* Создание группы */}
+      <CreateGroupModal
+        isOpen={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+        friends={friends}
+        onGroupCreated={(newGrp) => {
+          setGroups((prev) => [newGrp, ...prev]);
+          setSelectedFriend(null);
+          setSelectedGroup(newGrp);
+          setActiveView('chat');
+        }}
+      />
+
+      {/* Инфо/управление группой */}
+      <GroupInfoModal
+        isOpen={Boolean(groupInfoModalId)}
+        groupId={groupInfoModalId}
+        onClose={() => setGroupInfoModalId(null)}
+        friends={friends}
+        onOpenProfile={(id) => setProfileUserId(id)}
+        onGroupUpdated={(updatedGrp) => {
+          setGroups((prev) => prev.map((g) => (g.id === updatedGrp.id ? { ...g, ...updatedGrp } : g)));
+          if (selectedGroup?.id === updatedGrp.id) {
+            setSelectedGroup((prev) => ({ ...prev, ...updatedGrp }));
+          }
+        }}
+        onGroupDeleted={(deletedId) => {
+          setGroups((prev) => prev.filter((g) => g.id !== deletedId));
+          if (selectedGroup?.id === deletedId) setSelectedGroup(null);
+        }}
+        onLeaveGroup={(leftId) => {
+          setGroups((prev) => prev.filter((g) => g.id !== leftId));
+          if (selectedGroup?.id === leftId) setSelectedGroup(null);
+        }}
+      />
+
       {/* Просмотр публичного/своего профиля */}
       <ProfileModal
         isOpen={Boolean(profileUserId)}
@@ -345,6 +458,7 @@ function MainApp() {
         userIdOrUsername={profileUserId}
         onOpenEditProfile={() => setIsEditProfileOpen(true)}
         onSelectFriend={(friend) => {
+          setSelectedGroup(null);
           setSelectedFriend(friend);
           setActiveView('chat');
         }}
@@ -365,8 +479,25 @@ function MainApp() {
       <NotificationToast
         onOpenRequests={() => setIsRequestsOpen(true)}
         onSelectFriend={(friend) => {
+          setSelectedGroup(null);
           setSelectedFriend(friend);
           setActiveView('chat');
+        }}
+        onSelectGroup={(groupId) => {
+          const targetGroup = groups.find((g) => g.id === Number(groupId));
+          if (targetGroup) {
+            setSelectedFriend(null);
+            setSelectedGroup(targetGroup);
+            setActiveView('chat');
+          } else {
+            api.getGroup(groupId).then((res) => {
+              if (res.group) {
+                setSelectedFriend(null);
+                setSelectedGroup(res.group);
+                setActiveView('chat');
+              }
+            }).catch(console.error);
+          }
         }}
       />
 

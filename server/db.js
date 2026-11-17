@@ -32,6 +32,7 @@ const db = {
 
   async init() {
     if (isPg) {
+      // 1. Создаем базовые таблицы
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
@@ -58,37 +59,71 @@ const db = {
           UNIQUE(user1_id, user2_id)
         );
 
+        CREATE TABLE IF NOT EXISTS groups (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(150) NOT NULL,
+          description TEXT,
+          avatar TEXT,
+          creator_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS group_members (
+          id SERIAL PRIMARY KEY,
+          group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(group_id, user_id)
+        );
+
         CREATE TABLE IF NOT EXISTS images (
           id SERIAL PRIMARY KEY,
           sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          receiver_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          group_id INTEGER,
           file_url TEXT,
           original_name TEXT,
           caption TEXT,
           file_size INTEGER,
+          reply_to_id INTEGER,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
-
-        CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(user1_id, user2_id);
-        CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
       `);
 
-      // Добавляем новые колонки в PostgreSQL если их еще нет
-      try {
-        await pgPool.query(`
-          ALTER TABLE users ADD COLUMN IF NOT EXISTS banner TEXT;
-          ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
-          ALTER TABLE users ADD COLUMN IF NOT EXISTS birthdate VARCHAR(50);
-          ALTER TABLE users ADD COLUMN IF NOT EXISTS badge VARCHAR(100);
-          ALTER TABLE images ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;
-          ALTER TABLE images ALTER COLUMN file_url DROP NOT NULL;
-          ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;
-        `);
-      } catch (e) {
-        // Игнорируем
+      // 2. Накатываем миграции для уже существующих в БД таблиц
+      const migrations = [
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS banner TEXT;`,
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;`,
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS birthdate VARCHAR(50);`,
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS badge VARCHAR(100);`,
+        `ALTER TABLE images ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;`,
+        `ALTER TABLE images ADD COLUMN IF NOT EXISTS group_id INTEGER;`,
+        `ALTER TABLE images ALTER COLUMN receiver_id DROP NOT NULL;`,
+        `ALTER TABLE images ALTER COLUMN file_url DROP NOT NULL;`,
+        `ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;`
+      ];
+
+      for (const sql of migrations) {
+        try {
+          await pgPool.query(sql);
+        } catch (e) {
+          console.warn('Миграция PostgreSQL пропущена или уже применена:', sql.split(';')[0], e.message);
+        }
       }
 
-      console.log('✅ Таблицы PostgreSQL готовы (профили, чат, баннеры)');
+      // 3. Создаем индексы после гарантированного добавления всех колонок
+      try {
+        await pgPool.query(`
+          CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(user1_id, user2_id);
+          CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
+          CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
+          CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id, user_id);
+        `);
+      } catch (e) {
+        console.warn('Предупреждение при создании индексов PostgreSQL:', e.message);
+      }
+
+      console.log('✅ Таблицы PostgreSQL готовы (профили, чат, баннеры, группы)');
     } else {
       sqliteDb.exec(`
         CREATE TABLE IF NOT EXISTS users (
@@ -118,21 +153,46 @@ const db = {
           FOREIGN KEY(user2_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS groups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT,
+          avatar TEXT,
+          creator_id INTEGER NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(creator_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS group_members (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          group_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(group_id, user_id),
+          FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS images (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           sender_id INTEGER NOT NULL,
-          receiver_id INTEGER NOT NULL,
+          receiver_id INTEGER,
+          group_id INTEGER,
           file_url TEXT,
           original_name TEXT,
           caption TEXT,
           file_size INTEGER,
+          reply_to_id INTEGER,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
+          FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
         );
 
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(user1_id, user2_id);
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
+        CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
+        CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id, user_id);
       `);
 
       // Автоматическая миграция SQLite users (добавление banner, bio, birthdate, badge)
@@ -146,21 +206,20 @@ const db = {
         // Уже есть
       }
 
-      // Автоматическая миграция существующей SQLite таблицы images (снятие NOT NULL и добавление reply_to_id)
+      // Автоматическая миграция SQLite images (снятие NOT NULL с receiver_id и добавление group_id)
       try {
         const tableInfo = sqliteDb.prepare("PRAGMA table_info(images);").all();
         const colNames = tableInfo.map(c => c.name);
-        if (!colNames.includes('reply_to_id')) {
-          sqliteDb.exec("ALTER TABLE images ADD COLUMN reply_to_id INTEGER;");
-        }
-
+        const receiverCol = tableInfo.find(c => c.name === 'receiver_id');
         const fileUrlCol = tableInfo.find(c => c.name === 'file_url');
-        if (fileUrlCol && fileUrlCol.notnull === 1) {
+
+        if (!colNames.includes('group_id') || (receiverCol && receiverCol.notnull === 1) || (fileUrlCol && fileUrlCol.notnull === 1)) {
           sqliteDb.exec(`
-            CREATE TABLE IF NOT EXISTS images_new (
+            CREATE TABLE IF NOT EXISTS images_v_groups (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               sender_id INTEGER NOT NULL,
-              receiver_id INTEGER NOT NULL,
+              receiver_id INTEGER,
+              group_id INTEGER,
               file_url TEXT,
               original_name TEXT,
               caption TEXT,
@@ -168,19 +227,22 @@ const db = {
               reply_to_id INTEGER,
               created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
               FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
-              FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
+              FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+              FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
             );
-            INSERT INTO images_new SELECT id, sender_id, receiver_id, file_url, original_name, caption, file_size, reply_to_id, created_at FROM images;
+            INSERT INTO images_v_groups (id, sender_id, receiver_id, file_url, original_name, caption, file_size, reply_to_id, created_at)
+            SELECT id, sender_id, receiver_id, file_url, original_name, caption, file_size, reply_to_id, created_at FROM images;
             DROP TABLE images;
-            ALTER TABLE images_new RENAME TO images;
+            ALTER TABLE images_v_groups RENAME TO images;
             CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
+            CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
           `);
         }
       } catch (migErr) {
         // Игнорируем
       }
 
-      console.log('✅ Таблицы SQLite готовы (профили, чат, баннеры)');
+      console.log('✅ Таблицы SQLite готовы (профили, чат, баннеры, группы)');
     }
   },
 
