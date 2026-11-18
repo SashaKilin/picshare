@@ -101,7 +101,8 @@ app.get('/api/health', (req, res) => {
     time: new Date().toISOString(),
     database: db.isPg ? 'PostgreSQL (Cloud)' : 'SQLite (Local)',
     imageStorage: process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME ? 'Cloudinary (Cloud)' : 'Local Disk',
-    googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID)
+    googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
+    googleClientId: process.env.GOOGLE_CLIENT_ID || null
   });
 });
 

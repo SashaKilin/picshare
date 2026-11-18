@@ -13,7 +13,7 @@ async function requireAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const user = await db.get(
-      'SELECT id, username, email, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
+      'SELECT id, username, email, google_id, (password_hash IS NOT NULL) as has_password, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
       [payload.id]
     );
 
@@ -38,7 +38,7 @@ async function optionalAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const user = await db.get(
-      'SELECT id, username, email, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
+      'SELECT id, username, email, google_id, (password_hash IS NOT NULL) as has_password, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
       [payload.id]
     );
     if (user) {

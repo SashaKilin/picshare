@@ -48,9 +48,18 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  // Google привязка
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [linking, setLinking] = useState(false);
+  const [showSetPassword, setShowSetPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [settingPassword, setSettingPassword] = useState(false);
 
   const avatarInputRef = useRef(null);
   const bannerInputRef = useRef(null);
+  const googleLinkBtnRef = useRef(null);
 
   useEffect(() => {
     if (isOpen && user) {
@@ -61,10 +70,137 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
       setAvatar(user.avatar || '');
       setBanner(user.banner || '');
       setError('');
+      setSuccessMsg('');
+      setShowSetPassword(false);
+      setNewPassword('');
+
+      api.getHealth()
+        .then(data => {
+          if (data.googleClientId) setGoogleClientId(data.googleClientId);
+        })
+        .catch(() => {});
     }
   }, [isOpen, user]);
 
+  const effectiveClientId = googleClientId || import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
+  // Инициализация кнопки Google Identity Services
+  useEffect(() => {
+    if (!isOpen || user?.google_id) return;
+
+    const setupGoogle = () => {
+      if (window.google?.accounts?.id && effectiveClientId) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: effectiveClientId,
+            callback: handleGoogleLinkResponse,
+          });
+
+          if (googleLinkBtnRef.current) {
+            googleLinkBtnRef.current.innerHTML = '';
+            window.google.accounts.id.renderButton(googleLinkBtnRef.current, {
+              theme: 'filled_black',
+              size: 'medium',
+              shape: 'pill',
+              text: 'continue_with',
+            });
+          }
+        } catch (e) {
+          console.warn('Google GSI link init notice:', e);
+        }
+      }
+    };
+
+    setupGoogle();
+    const timer = setTimeout(setupGoogle, 350);
+    return () => clearTimeout(timer);
+  }, [isOpen, effectiveClientId, user?.google_id]);
+
   if (!isOpen) return null;
+
+  async function handleGoogleLinkResponse(response) {
+    if (!response?.credential) return;
+    setLinking(true);
+    setError('');
+    try {
+      const data = await api.linkGoogle(response.credential);
+      updateUser(data.user);
+      setSuccessMsg('Google аккаунт успешно привязан!');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      if (onProfileUpdated) onProfileUpdated(data.user);
+    } catch (err) {
+      setError(err.message || 'Ошибка привязки Google аккаунта');
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function handleDemoGoogleLink() {
+    setLinking(true);
+    setError('');
+    try {
+      const randomSeed = Math.floor(1000 + Math.random() * 9000);
+      const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
+      const payload = btoa(
+        JSON.stringify({
+          sub: `google_sub_${randomSeed}`,
+          name: user.username,
+          email: user.email,
+        })
+      );
+      const demoToken = `${header}.${payload}.signature`;
+
+      const data = await api.linkGoogle(demoToken);
+      updateUser(data.user);
+      setSuccessMsg('Google аккаунт успешно привязан (Демо)');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      if (onProfileUpdated) onProfileUpdated(data.user);
+    } catch (err) {
+      setError(err.message || 'Ошибка привязки');
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function handleUnlinkGoogle() {
+    if (!window.confirm('Вы уверены, что хотите отвязать Google аккаунт?')) return;
+    setLinking(true);
+    setError('');
+    try {
+      const data = await api.unlinkGoogle();
+      updateUser(data.user);
+      setSuccessMsg('Google аккаунт успешно отвязан');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      if (onProfileUpdated) onProfileUpdated(data.user);
+    } catch (err) {
+      setError(err.message || 'Ошибка отвязки Google');
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function handleSetPassword(e) {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) {
+      setError('Пароль должен содержать не менее 6 символов');
+      return;
+    }
+    setSettingPassword(true);
+    setError('');
+    try {
+      const data = await api.setPassword(newPassword);
+      updateUser(data.user);
+      setNewPassword('');
+      setShowSetPassword(false);
+      setSuccessMsg('Пароль успешно установлен!');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      if (onProfileUpdated) onProfileUpdated(data.user);
+    } catch (err) {
+      setError(err.message || 'Ошибка установки пароля');
+    } finally {
+      setSettingPassword(false);
+    }
+  }
 
   async function handleAvatarUpload(file) {
     if (!file) return;
@@ -149,6 +285,13 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
             <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{successMsg}</span>
             </div>
           )}
 
@@ -342,6 +485,110 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* 6. Привязка Google аккаунта */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                <span className="text-xs font-semibold text-white">Google аккаунт</span>
+              </div>
+
+              {user?.google_id ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-medium">
+                  <Check className="w-3 h-3" />
+                  <span>Привязан</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-700/50 text-slate-400 text-[11px] font-medium">
+                  Не привязан
+                </span>
+              )}
+            </div>
+
+            {user?.google_id ? (
+              <div className="space-y-2 mt-2">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Ваш Google аккаунт привязан. Вы можете входить на сайт в 1 клик через Google.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleUnlinkGoogle}
+                    disabled={linking}
+                    className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-medium transition active:scale-95 disabled:opacity-50"
+                  >
+                    {linking ? 'Отвязка...' : 'Отвязать Google'}
+                  </button>
+                  {!user?.has_password && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSetPassword(!showSetPassword)}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-medium transition"
+                    >
+                      {showSetPassword ? 'Отмена' : 'Установить пароль'}
+                    </button>
+                  )}
+                </div>
+
+                {showSetPassword && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
+                    <label className="block text-[11px] font-semibold text-slate-300">
+                      Установите пароль (от 6 символов), чтобы входить без Google:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        minLength={6}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Новый пароль..."
+                        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSetPassword}
+                        disabled={settingPassword || newPassword.length < 6}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:opacity-50 transition"
+                      >
+                        {settingPassword ? '...' : 'Сохранить'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2 mt-2">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Привяжите аккаунт Google, чтобы моментально входить в свой профиль в один клик без ввода логина и пароля.
+                </p>
+                <div className="pt-1">
+                  <div ref={googleLinkBtnRef} className={`flex justify-start min-h-[38px] ${effectiveClientId ? 'block' : 'hidden'}`}></div>
+                  {!effectiveClientId && (
+                    <button
+                      type="button"
+                      onClick={handleDemoGoogleLink}
+                      disabled={linking}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-2 transition active:scale-95"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                      </svg>
+                      <span>{linking ? 'Привязка...' : 'Привязать Google'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Кнопка сохранения */}

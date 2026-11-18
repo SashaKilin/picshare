@@ -98,6 +98,8 @@ router.post('/register', async (req, res) => {
       id: newUserId,
       username,
       email,
+      google_id: null,
+      has_password: true,
       avatar: defaultAvatar,
       banner: null,
       bio: '',
@@ -148,6 +150,8 @@ router.post('/login', async (req, res) => {
       id: user.id,
       username: user.username,
       email: user.email,
+      google_id: user.google_id || null,
+      has_password: Boolean(user.password_hash),
       avatar: user.avatar,
       banner: user.banner,
       bio: user.bio,
@@ -251,6 +255,8 @@ router.post('/google', async (req, res) => {
       id: user.id,
       username: user.username,
       email: user.email,
+      google_id: user.google_id || null,
+      has_password: Boolean(user.password_hash),
       avatar: user.avatar,
       banner: user.banner,
       bio: user.bio,
@@ -359,17 +365,151 @@ router.put('/profile', requireAuth, async (req, res) => {
     }
 
     const updatedUser = await db.get(
-      'SELECT id, username, email, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
+      'SELECT id, username, email, google_id, (password_hash IS NOT NULL) as has_password, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?', 
       [req.user.id]
     );
 
     return res.json({ 
       message: 'Профиль успешно обновлен',
-      user: updatedUser 
+      user: {
+        ...updatedUser,
+        has_password: Boolean(updatedUser.has_password)
+      }
     });
   } catch (err) {
     console.error('Ошибка обновления профиля:', err);
     return res.status(500).json({ error: 'Не удалось обновить профиль' });
+  }
+});
+
+// 7. Привязать Google аккаунт к текущему пользователю
+router.post('/link-google', requireAuth, async (req, res) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ error: 'Отсутствует Google токен' });
+    }
+
+    let googlePayload;
+    if (process.env.GOOGLE_CLIENT_ID) {
+      try {
+        const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+        const ticket = await client.verifyIdToken({
+          idToken: credential,
+          audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        googlePayload = ticket.getPayload();
+      } catch (err) {
+        console.error('Ошибка верификации Google токена при привязке:', err);
+        return res.status(400).json({ error: 'Недействительный токен Google' });
+      }
+    } else {
+      try {
+        const parts = credential.split('.');
+        if (parts.length === 3) {
+          googlePayload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        }
+      } catch (e) {
+        return res.status(400).json({ error: 'Не удалось прочитать Google токен' });
+      }
+    }
+
+    if (!googlePayload || !googlePayload.sub) {
+      return res.status(400).json({ error: 'Не удалось получить данные аккаунта Google' });
+    }
+
+    const googleId = googlePayload.sub;
+
+    // Проверяем, не привязан ли этот Google аккаунт уже к кому-то другому
+    const existing = await db.get('SELECT id, username FROM users WHERE google_id = ? AND id != ?', [googleId, req.user.id]);
+    if (existing) {
+      return res.status(400).json({ 
+        error: `Этот Google аккаунт уже привязан к пользователю ${existing.username}` 
+      });
+    }
+
+    await db.run('UPDATE users SET google_id = ? WHERE id = ?', [googleId, req.user.id]);
+
+    const updatedUser = await db.get(
+      'SELECT id, username, email, google_id, (password_hash IS NOT NULL) as has_password, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
+    return res.json({
+      message: 'Google аккаунт успешно привязан!',
+      user: {
+        ...updatedUser,
+        has_password: Boolean(updatedUser.has_password)
+      }
+    });
+  } catch (err) {
+    console.error('Ошибка привязки Google аккаунта:', err);
+    return res.status(500).json({ error: 'Ошибка сервера при привязке Google аккаунта' });
+  }
+});
+
+// 8. Отвязать Google аккаунт
+router.post('/unlink-google', requireAuth, async (req, res) => {
+  try {
+    const userRow = await db.get('SELECT id, password_hash, google_id FROM users WHERE id = ?', [req.user.id]);
+    if (!userRow || !userRow.google_id) {
+      return res.status(400).json({ error: 'Google аккаунт не привязан' });
+    }
+
+    if (!userRow.password_hash) {
+      return res.status(400).json({
+        error: 'Сначала установите пароль для аккаунта, иначе вы не сможете войти после отвязки Google!'
+      });
+    }
+
+    await db.run('UPDATE users SET google_id = NULL WHERE id = ?', [req.user.id]);
+
+    const updatedUser = await db.get(
+      'SELECT id, username, email, google_id, (password_hash IS NOT NULL) as has_password, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
+    return res.json({
+      message: 'Google аккаунт успешно отвязан',
+      user: {
+        ...updatedUser,
+        has_password: Boolean(updatedUser.has_password)
+      }
+    });
+  } catch (err) {
+    console.error('Ошибка отвязки Google аккаунта:', err);
+    return res.status(500).json({ error: 'Ошибка сервера при отвязке Google' });
+  }
+});
+
+// 9. Установить пароль (для пользователей, созданных через Google)
+router.post('/set-password', requireAuth, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Пароль должен содержать не менее 6 символов' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    await db.run('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, req.user.id]);
+
+    const updatedUser = await db.get(
+      'SELECT id, username, email, google_id, (password_hash IS NOT NULL) as has_password, avatar, banner, bio, birthdate, badge, created_at FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
+    return res.json({
+      message: 'Пароль успешно установлен!',
+      user: {
+        ...updatedUser,
+        has_password: true
+      }
+    });
+  } catch (err) {
+    console.error('Ошибка установки пароля:', err);
+    return res.status(500).json({ error: 'Не удалось установить пароль' });
   }
 });
 
