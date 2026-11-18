@@ -166,15 +166,17 @@ export function SocketProvider({ children }) {
           ? Number(currentActiveGroup) === Number(image.group_id)
           : Number(currentActiveFriend) === senderId;
 
-        // Всплывающий тост внутри сайта
-        setNotification({
-          type: 'new_image',
-          title: isGroup 
-            ? `Новое сообщение от ${image.sender_username}!`
-            : `Новая картинка от ${image.sender_username}!`,
-          message: image.caption || (image.image_url ? 'Прислал(а) изображение' : 'Новое сообщение'),
-          image
-        });
+        // Всплывающий тост внутри сайта (только если данный диалог не открыт прямо сейчас)
+        if (!isChatCurrentlyOpen) {
+          setNotification({
+            type: 'new_image',
+            title: isGroup 
+              ? `Новое сообщение от ${image.sender_username}!`
+              : `Новая картинка от ${image.sender_username}!`,
+            message: image.caption || (image.image_url ? 'Прислал(а) изображение' : 'Новое сообщение'),
+            image
+          });
+        }
 
         // Браузерное Desktop/Push уведомление (когда вкладка свернута или открыт другой чат)
         if (document.hidden || !isChatCurrentlyOpen) {

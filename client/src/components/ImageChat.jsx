@@ -233,6 +233,7 @@ export function ImageChat({
 
     const handleNewImage = (newImg) => {
       const myId = Number(user.id);
+      const isInputFocused = document.activeElement === captionInputRef.current;
 
       if (isGroup) {
         if (Number(newImg.group_id) === Number(group.id)) {
@@ -242,7 +243,7 @@ export function ImageChat({
             return [...prev, newImg];
           });
 
-          if (isNearBottomRef.current || Number(newImg.sender_id) === myId) {
+          if (isNearBottomRef.current || Number(newImg.sender_id) === myId || isInputFocused) {
             scrollToBottom(true);
           } else {
             setNewUnreadCount((c) => c + 1);
@@ -261,7 +262,7 @@ export function ImageChat({
             return [...prev, newImg];
           });
 
-          if (isNearBottomRef.current || sId === myId) {
+          if (isNearBottomRef.current || sId === myId || isInputFocused) {
             scrollToBottom(true);
           } else {
             setNewUnreadCount((c) => c + 1);
@@ -374,6 +375,23 @@ export function ImageChat({
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
+  }, []);
+
+  // Автопрокрутка вниз при открытии клавиатуры на мобильных
+  useEffect(() => {
+    const handleVisualResize = () => {
+      if (document.activeElement === captionInputRef.current) {
+        scrollToBottom(true);
+      }
+    };
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleVisualResize);
+    }
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleVisualResize);
+      }
+    };
   }, []);
 
   function handleDragOver(e) {
@@ -1068,8 +1086,15 @@ export function ImageChat({
             onChange={(e) => setCaption(e.target.value)}
             onInput={(e) => setCaption(e.target.value)}
             onCompositionEnd={(e) => setCaption(e.target.value)}
+            onFocus={() => {
+              setTimeout(() => scrollToBottom(true), 80);
+              setTimeout(() => scrollToBottom(true), 240);
+            }}
             enterKeyHint="send"
-            autoComplete="off"
+            autoComplete="on"
+            autoCorrect="on"
+            spellCheck="true"
+            inputMode="text"
             placeholder={
               replyingTo
                 ? `Ответ для @${replyingTo.sender_username}...`

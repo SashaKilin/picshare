@@ -126,8 +126,8 @@ export function Navbar({
               {/* Кнопка выхода */}
               <button
                 onClick={logout}
-                className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                title="Выйти"
+                className="p-1.5 sm:p-2 rounded-xl text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 transition shrink-0 flex items-center justify-center touch-manipulation active:scale-95"
+                title="Выйти из аккаунта"
               >
                 <LogOut className="w-4 h-4" />
               </button>
