@@ -112,7 +112,6 @@ const fcmService = {
             priority: 'high',
             defaultSound: true,
             defaultVibrateTimings: true,
-            clickAction: 'FCM_PLUGIN_ACTIVITY',
             icon: 'ic_launcher'
           }
         }

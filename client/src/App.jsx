@@ -91,8 +91,12 @@ function MainApp() {
     };
 
     const handleOpenFriend = (e) => {
+      const friendData = e.detail;
+      if (!friendData) return;
+      const friendId = Number(friendData.id || friendData);
+      const targetFriend = friends.find((f) => f.id === friendId) || friendData;
       setSelectedGroup(null);
-      setSelectedFriend(e.detail);
+      setSelectedFriend(targetFriend);
       setActiveView('chat');
     };
 
@@ -130,7 +134,7 @@ function MainApp() {
         navigator.serviceWorker.removeEventListener('message', handleSwMessage);
       }
     };
-  }, [groups]);
+  }, [groups, friends]);
 
   useEffect(() => {
     if (isAuthenticated) {
