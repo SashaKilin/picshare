@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { getAuthToken } from '../api';
+import { sendBrowserNotification } from '../utils/browserNotifications';
 
 const SocketContext = createContext(null);
 
@@ -51,6 +52,18 @@ export function SocketProvider({ children }) {
   const [notification, setNotification] = useState(null);
   const [unreadMap, setUnreadMap] = useState({}); // { [friendId]: count }
   const [activeFriendId, setActiveFriendId] = useState(null);
+  const [activeGroupId, setActiveGroupId] = useState(null);
+
+  const activeFriendIdRef = useRef(null);
+  const activeGroupIdRef = useRef(null);
+
+  useEffect(() => {
+    activeFriendIdRef.current = activeFriendId;
+  }, [activeFriendId]);
+
+  useEffect(() => {
+    activeGroupIdRef.current = activeGroupId;
+  }, [activeGroupId]);
 
   useEffect(() => {
     if (!user) {
@@ -102,6 +115,17 @@ export function SocketProvider({ children }) {
         message: `${fromUser.username} хочет добавить вас в друзья`,
         user: fromUser
       });
+
+      sendBrowserNotification({
+        title: 'Новая заявка в друзья! 🔔',
+        body: `${fromUser.username} хочет добавить вас в друзья`,
+        icon: fromUser.avatar || '/favicon.svg',
+        tag: `friend_req_${fromUser.id}`,
+        onClick: () => {
+          window.focus();
+          window.dispatchEvent(new CustomEvent('picshare_open_requests'));
+        }
+      });
     });
 
     newSocket.on('friend_request_accepted', ({ user: friend }) => {
@@ -112,6 +136,17 @@ export function SocketProvider({ children }) {
         message: `${friend.username} теперь ваш друг! Теперь вы можете обмениваться картинками.`,
         user: friend
       });
+
+      sendBrowserNotification({
+        title: 'Заявка принята! 🎉',
+        body: `${friend.username} теперь ваш друг! Теперь вы можете обмениваться картинками.`,
+        icon: friend.avatar || '/favicon.svg',
+        tag: `friend_acc_${friend.id}`,
+        onClick: () => {
+          window.focus();
+          window.dispatchEvent(new CustomEvent('picshare_open_friend', { detail: friend }));
+        }
+      });
     });
 
     newSocket.on('new_image', (image) => {
@@ -121,8 +156,15 @@ export function SocketProvider({ children }) {
       if (!isMe) {
         playNotificationSound();
 
-        // Уведомление
         const isGroup = Boolean(image.group_id);
+        const currentActiveFriend = activeFriendIdRef.current;
+        const currentActiveGroup = activeGroupIdRef.current;
+
+        const isChatCurrentlyOpen = isGroup
+          ? Number(currentActiveGroup) === Number(image.group_id)
+          : Number(currentActiveFriend) === senderId;
+
+        // Всплывающий тост внутри сайта
         setNotification({
           type: 'new_image',
           title: isGroup 
@@ -132,8 +174,34 @@ export function SocketProvider({ children }) {
           image
         });
 
+        // Браузерное Desktop/Push уведомление (когда вкладка свернута или открыт другой чат)
+        if (document.hidden || !isChatCurrentlyOpen) {
+          sendBrowserNotification({
+            title: isGroup 
+              ? `Группа: сообщение от ${image.sender_username}`
+              : `Новое сообщение от ${image.sender_username}`,
+            body: image.caption || (image.image_url ? 'Прислал(а) изображение' : 'Новое сообщение'),
+            icon: image.sender_avatar || '/favicon.svg',
+            tag: isGroup ? `group_${image.group_id}` : `friend_${senderId}`,
+            onClick: () => {
+              window.focus();
+              if (isGroup) {
+                window.dispatchEvent(new CustomEvent('picshare_open_group', { detail: { groupId: image.group_id } }));
+              } else {
+                window.dispatchEvent(new CustomEvent('picshare_open_friend', { 
+                  detail: {
+                    id: senderId,
+                    username: image.sender_username,
+                    avatar: image.sender_avatar
+                  } 
+                }));
+              }
+            }
+          });
+        }
+
         // Если сейчас открыт не диалог с этим другом, увеличиваем счетчик непрочитанных
-        if (!isGroup && Number(activeFriendId) !== senderId) {
+        if (!isGroup && !isChatCurrentlyOpen) {
           setUnreadMap((prev) => ({
             ...prev,
             [senderId]: (prev[senderId] || 0) + 1
@@ -161,7 +229,7 @@ export function SocketProvider({ children }) {
       newSocket.disconnect();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [user?.id, activeFriendId]);
+  }, [user?.id]);
 
   const markAsRead = (friendId) => {
     if (!friendId) return;
@@ -183,7 +251,9 @@ export function SocketProvider({ children }) {
       unreadMap,
       markAsRead,
       activeFriendId,
-      setActiveFriendId
+      setActiveFriendId,
+      activeGroupId,
+      setActiveGroupId
     }}>
       {children}
     </SocketContext.Provider>

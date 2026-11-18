@@ -15,6 +15,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { EditProfileModal } from './components/EditProfileModal';
 import { CreateGroupModal } from './components/CreateGroupModal';
 import { GroupInfoModal } from './components/GroupInfoModal';
+import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
 import { 
   Images, 
   UserPlus, 
@@ -67,6 +68,47 @@ function MainApp() {
     if (document.documentElement) document.documentElement.scrollTop = 0;
     if (document.body) document.body.scrollTop = 0;
   }, [selectedFriend, selectedGroup, activeView]);
+
+  // Обработка клика по системным браузерным уведомлениям
+  useEffect(() => {
+    const handleOpenGroup = (e) => {
+      const { groupId } = e.detail;
+      const targetGroup = groups.find((g) => g.id === Number(groupId));
+      if (targetGroup) {
+        setSelectedFriend(null);
+        setSelectedGroup(targetGroup);
+        setActiveView('chat');
+      } else {
+        api.getGroup(groupId).then((res) => {
+          if (res.group) {
+            setSelectedFriend(null);
+            setSelectedGroup(res.group);
+            setActiveView('chat');
+          }
+        }).catch(console.error);
+      }
+    };
+
+    const handleOpenFriend = (e) => {
+      setSelectedGroup(null);
+      setSelectedFriend(e.detail);
+      setActiveView('chat');
+    };
+
+    const handleOpenRequests = () => {
+      setIsRequestsOpen(true);
+    };
+
+    window.addEventListener('picshare_open_group', handleOpenGroup);
+    window.addEventListener('picshare_open_friend', handleOpenFriend);
+    window.addEventListener('picshare_open_requests', handleOpenRequests);
+
+    return () => {
+      window.removeEventListener('picshare_open_group', handleOpenGroup);
+      window.removeEventListener('picshare_open_friend', handleOpenFriend);
+      window.removeEventListener('picshare_open_requests', handleOpenRequests);
+    };
+  }, [groups]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -500,6 +542,9 @@ function MainApp() {
           }
         }}
       />
+
+      {/* Однократный запрос на включение браузерных уведомлений */}
+      {isAuthenticated && <NotificationPermissionPrompt />}
 
     </div>
   );

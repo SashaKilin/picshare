@@ -11,8 +11,15 @@ import {
   Sparkles, 
   Check, 
   AlertCircle,
-  Palette
+  Palette,
+  Bell,
+  Lock
 } from 'lucide-react';
+import { 
+  getNotificationPermission, 
+  requestBrowserNotificationPermission, 
+  sendBrowserNotification 
+} from '../utils/browserNotifications';
 
 const PRESET_GRADIENTS = [
   { id: 'cosmic', name: 'Космос', value: 'linear-gradient(135deg, #312e81 0%, #581c87 50%, #831843 100%)' },
@@ -57,6 +64,9 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
   const [newPassword, setNewPassword] = useState('');
   const [settingPassword, setSettingPassword] = useState(false);
 
+  // Браузерные уведомления
+  const [browserPerm, setBrowserPerm] = useState('default');
+
   const avatarInputRef = useRef(null);
   const bannerInputRef = useRef(null);
   const googleLinkBtnRef = useRef(null);
@@ -73,6 +83,7 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
       setSuccessMsg('');
       setShowSetPassword(false);
       setNewPassword('');
+      setBrowserPerm(getNotificationPermission());
 
       api.getHealth()
         .then(data => {
@@ -81,6 +92,19 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
         .catch(() => {});
     }
   }, [isOpen, user]);
+
+  async function handleToggleBrowserNotifications() {
+    const res = await requestBrowserNotificationPermission();
+    setBrowserPerm(res);
+    if (res === 'granted') {
+      sendBrowserNotification({
+        title: 'Уведомления PicShare 🔔',
+        body: 'Браузерные уведомления успешно включены!'
+      });
+      setSuccessMsg('Браузерные уведомления успешно включены!');
+      setTimeout(() => setSuccessMsg(''), 4000);
+    }
+  }
 
   const effectiveClientId = googleClientId || import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
@@ -587,6 +611,78 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
                     </button>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* 7. Уведомления браузера */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Bell className="w-4 h-4 text-indigo-400" />
+                <span className="text-xs font-semibold text-white">Уведомления браузера</span>
+              </div>
+
+              {browserPerm === 'granted' ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-medium">
+                  <Check className="w-3 h-3" />
+                  <span>Включены</span>
+                </span>
+              ) : browserPerm === 'denied' ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[11px] font-medium">
+                  <Lock className="w-3 h-3" />
+                  <span>Заблокированы</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-700/50 text-slate-400 text-[11px] font-medium">
+                  Выключены
+                </span>
+              )}
+            </div>
+
+            {browserPerm === 'granted' ? (
+              <div className="space-y-2 mt-2">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Браузерные уведомления включены. Вы будете получать системные оповещения о новых сообщениях и заявках в друзья.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sendBrowserNotification({
+                      title: 'Проверка уведомлений PicShare 🔔',
+                      body: 'Всё работает отлично! Вы будете получать сообщения, даже когда вкладка свернута.'
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition active:scale-95"
+                >
+                  Проверить уведомление
+                </button>
+              </div>
+            ) : browserPerm === 'denied' ? (
+              <div className="space-y-2 mt-2">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Уведомления заблокированы сайтом в вашем браузере.
+                </p>
+                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-[11px] text-slate-300 space-y-1">
+                  <p className="font-semibold text-white">Как включить:</p>
+                  <p>1. Нажмите на значок настроек/замка <b>🔒</b> слева от адреса сайта в строке браузера.</p>
+                  <p>2. Переключите пункт <b>«Уведомления»</b> в положение <b>«Разрешить»</b>.</p>
+                  <p>3. Обновите страницу сайта.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2 mt-2">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Включите уведомления, чтобы не пропускать важные сообщения и заявки в друзья, когда вкладка свернута.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleToggleBrowserNotifications}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition active:scale-95 flex items-center gap-1.5"
+                >
+                  <Bell className="w-3.5 h-3.5" />
+                  <span>Включить уведомления</span>
+                </button>
               </div>
             )}
           </div>

@@ -142,7 +142,7 @@ export function ImageChat({
   onOpenGroupInfo,
 }) {
   const { user } = useAuth();
-  const { socket, onlineUsers, markAsRead, setActiveFriendId } = useSocket();
+  const { socket, onlineUsers, markAsRead, setActiveFriendId, setActiveGroupId } = useSocket();
 
   const isGroup = Boolean(group);
   const targetId = isGroup ? group.id : friend?.id;
@@ -176,14 +176,19 @@ export function ImageChat({
   const isNearBottomRef = useRef(true);
 
   useEffect(() => {
-    if (!isGroup && friend?.id) {
+    if (isGroup && group?.id) {
+      setActiveGroupId(Number(group.id));
+      setActiveFriendId(null);
+    } else if (friend?.id) {
       setActiveFriendId(Number(friend.id));
+      setActiveGroupId(null);
       markAsRead(Number(friend.id));
     }
     return () => {
       setActiveFriendId(null);
+      setActiveGroupId(null);
     };
-  }, [friend?.id, isGroup]);
+  }, [friend?.id, group?.id, isGroup]);
 
   useEffect(() => {
     if (!targetId) return;
