@@ -1,8 +1,41 @@
 const express = require('express');
 const pushService = require('../services/pushService');
+const fcmService = require('../services/fcmService');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Регистрация нативного FCM Push токена Android устройства
+router.post('/fcm-token', requireAuth, async (req, res) => {
+  try {
+    const { token, deviceName } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'Не указан FCM токен' });
+    }
+
+    await fcmService.saveToken(req.user.id, token, deviceName);
+    // При регистрации нативного токена также отмечаем включенные уведы в приложении
+    await pushService.setAppNotificationsEnabled(req.user.id, true);
+
+    return res.json({ success: true, message: 'FCM токен успешно сохранен' });
+  } catch (err) {
+    console.error('Ошибка сохранения FCM токена:', err);
+    return res.status(500).json({ error: 'Не удалось сохранить FCM токен' });
+  }
+});
+
+// Удаление FCM токена
+router.post('/fcm-token/delete', requireAuth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (token) {
+      await fcmService.removeToken(token);
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Не удалось удалить токен' });
+  }
+});
 
 // Получить публичный VAPID ключ для подписки в браузере
 router.get('/public-key', (req, res) => {

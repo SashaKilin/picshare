@@ -99,8 +99,14 @@ const pushService = {
       }
 
       const subs = await db.all(sql, params);
-      );
 
+      // 1. Нативная отправка через Firebase Cloud Messaging (для закрытых Android-приложений)
+      try {
+        const fcmService = require('./fcmService');
+        fcmService.sendToUser(userId, payload).catch(() => {});
+      } catch (fcmErr) {}
+
+      // 2. Отправка через стандартный Web Push (для веб-браузеров)
       if (!subs || subs.length === 0) return;
 
       const payloadStr = JSON.stringify(payload);

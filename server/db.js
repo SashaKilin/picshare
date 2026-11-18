@@ -95,7 +95,16 @@ const db = {
           endpoint TEXT NOT NULL UNIQUE,
           p256dh TEXT NOT NULL,
           auth TEXT NOT NULL,
+          client_type VARCHAR(50) DEFAULT 'web',
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS fcm_tokens (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token TEXT NOT NULL UNIQUE,
+          device_name TEXT,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
       `);
 
@@ -130,6 +139,7 @@ const db = {
           CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
           CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id, user_id);
           CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+          CREATE INDEX IF NOT EXISTS idx_fcm_user ON fcm_tokens(user_id);
         `);
       } catch (e) {
         console.warn('Предупреждение при создании индексов PostgreSQL:', e.message);
@@ -212,10 +222,21 @@ const db = {
           endpoint TEXT NOT NULL UNIQUE,
           p256dh TEXT NOT NULL,
           auth TEXT NOT NULL,
+          client_type TEXT DEFAULT 'web',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
+        CREATE TABLE IF NOT EXISTS fcm_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          token TEXT NOT NULL UNIQUE,
+          device_name TEXT,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_fcm_user ON fcm_tokens(user_id);
       `);
 
       // Автоматическая миграция SQLite users (добавление banner, bio, birthdate, badge)
