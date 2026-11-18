@@ -1,15 +1,16 @@
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
+const { getMessaging } = require('firebase-admin/messaging');
 const db = require('../db');
 
 let isInitialized = false;
+let messagingInstance = null;
 
 function initFirebase() {
-  if (isInitialized) return true;
+  if (isInitialized && messagingInstance) return true;
 
   try {
-    // 1. Проверяем переменную окружения FIREBASE_SERVICE_ACCOUNT (строка JSON или путь к файлу)
     const envConfig = process.env.FIREBASE_SERVICE_ACCOUNT;
     const localFile = path.join(__dirname, '..', 'firebase-service-account.json');
 
@@ -28,23 +29,29 @@ function initFirebase() {
     }
 
     if (serviceAccount && serviceAccount.project_id) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
+      const app = admin.getApps().length > 0 
+        ? admin.getApp() 
+        : admin.initializeApp({ credential: admin.cert(serviceAccount) });
+      
+      messagingInstance = getMessaging(app);
       isInitialized = true;
       console.log(`🔥 Firebase Admin SDK успешно подключен к проекту: ${serviceAccount.project_id}`);
       return true;
     } else {
-      console.log('ℹ️ Firebase Admin SDK ожидает файл firebase-service-account.json или переменную FIREBASE_SERVICE_ACCOUNT');
       return false;
     }
   } catch (err) {
+    if (admin.getApps().length > 0) {
+      messagingInstance = getMessaging(admin.getApp());
+      isInitialized = true;
+      return true;
+    }
     console.warn('Предупреждение при инициализации Firebase Admin:', err.message);
     return false;
   }
 }
 
-// Запускаем проверку при старте
+// Пробуем инициализировать при старте
 initFirebase();
 
 const fcmService = {
@@ -76,7 +83,7 @@ const fcmService = {
     if (!userId) return;
 
     try {
-      if (!initFirebase()) {
+      if (!initFirebase() || !messagingInstance) {
         return; // Firebase еще не настроен
       }
 
@@ -111,7 +118,7 @@ const fcmService = {
         }
       };
 
-      const response = await admin.messaging().sendEachForMulticast(message);
+      const response = await messagingInstance.sendEachForMulticast(message);
       
       // Удаляем токены, ставшие недействительными (пользователь удалил приложение и т.д.)
       if (response.failureCount > 0) {
