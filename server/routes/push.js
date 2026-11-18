@@ -13,16 +13,45 @@ router.get('/public-key', (req, res) => {
 // Сохранить подписку браузера
 router.post('/subscribe', requireAuth, async (req, res) => {
   try {
-    const { subscription } = req.body;
+    const { subscription, clientType: explicitType } = req.body;
     if (!subscription || !subscription.endpoint) {
       return res.status(400).json({ error: 'Не указана подписка' });
     }
 
-    await pushService.saveSubscription(req.user.id, subscription);
-    return res.json({ success: true, message: 'Push-подписка успешно сохранена' });
+    // Определяем тип клиента: android_app, mobile_web или desktop_web
+    const ua = (req.headers['user-agent'] || '').toLowerCase();
+    const isMobile = /android|iphone|ipad|ipod|mobile/i.test(ua);
+    const clientType = explicitType || (isMobile ? 'mobile_web' : 'desktop_web');
+
+    await pushService.saveSubscription(req.user.id, subscription, clientType);
+    return res.json({ success: true, message: 'Push-подписка успешно сохранена', clientType });
   } catch (err) {
     console.error('Ошибка сохранения push-подписки:', err);
     return res.status(500).json({ error: 'Не удалось сохранить подписку' });
+  }
+});
+
+// Установить статус включения уведомлений в мобильном приложении
+router.post('/app-status', requireAuth, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    await pushService.setAppNotificationsEnabled(req.user.id, Boolean(enabled));
+    return res.json({ success: true, appNotificationsEnabled: Boolean(enabled) });
+  } catch (err) {
+    console.error('Ошибка app-status:', err);
+    return res.status(500).json({ error: 'Не удалось обновить статус' });
+  }
+});
+
+// Получить текущий статус уведомлений пользователя
+router.get('/status', requireAuth, async (req, res) => {
+  try {
+    const user = await require('../db').get('SELECT app_notifications_enabled FROM users WHERE id = ?', [req.user.id]);
+    return res.json({ 
+      appNotificationsEnabled: Boolean(user && (user.app_notifications_enabled === 1 || user.app_notifications_enabled === true))
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Не удалось получить статус' });
   }
 });
 

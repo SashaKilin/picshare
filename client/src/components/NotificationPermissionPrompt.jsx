@@ -4,6 +4,7 @@ import {
   requestBrowserNotificationPermission, 
   isBrowserNotificationSupported 
 } from '../utils/browserNotifications';
+import { api } from '../api';
 import { Bell, X, Check, Lock, ChevronRight } from 'lucide-react';
 
 export function NotificationPermissionPrompt() {
@@ -14,17 +15,44 @@ export function NotificationPermissionPrompt() {
   useEffect(() => {
     if (!isBrowserNotificationSupported()) return;
 
-    const currentPerm = getNotificationPermission();
-    setPermission(currentPerm);
+    const isMobile = typeof window !== 'undefined' && /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 
-    // Если разрешение еще не спрашивалось ('default') и пользователь еще не закрывал окно
-    const handled = localStorage.getItem('picshare_notif_prompt_handled');
-    if (currentPerm === 'default' && !handled) {
-      // Показываем с небольшой задержкой (1.5 сек), чтобы не шокировать при загрузке страницы
-      const timer = setTimeout(() => {
-        setVisible(true);
-      }, 1500);
-      return () => clearTimeout(timer);
+    // Если это мобильный браузер, проверяем, не включены ли уведомления в приложении на телефоне
+    if (isMobile) {
+      api.getPushStatus().then((res) => {
+        if (res?.appNotificationsEnabled) {
+          // Уведомления уже идут в нативное приложение на этом телефоне - мобильный веб не беспокоим!
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then((reg) => {
+              reg.pushManager?.getSubscription().then((sub) => {
+                if (sub) {
+                  api.unsubscribePush(sub.endpoint).catch(() => {});
+                  sub.unsubscribe().catch(() => {});
+                }
+              });
+            }).catch(() => {});
+          }
+          return;
+        }
+        checkAndShow();
+      }).catch(() => checkAndShow());
+      return;
+    }
+
+    checkAndShow();
+
+    function checkAndShow() {
+      const currentPerm = getNotificationPermission();
+      setPermission(currentPerm);
+
+      // Если разрешение еще не спрашивалось ('default') и пользователь еще не закрывал окно
+      const handled = localStorage.getItem('picshare_notif_prompt_handled');
+      if (currentPerm === 'default' && !handled) {
+        const timer = setTimeout(() => {
+          setVisible(true);
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
     }
   }, []);
 

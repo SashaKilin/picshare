@@ -109,7 +109,9 @@ const db = {
         `ALTER TABLE images ADD COLUMN IF NOT EXISTS group_id INTEGER;`,
         `ALTER TABLE images ALTER COLUMN receiver_id DROP NOT NULL;`,
         `ALTER TABLE images ALTER COLUMN file_url DROP NOT NULL;`,
-        `ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;`
+        `ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;`,
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS app_notifications_enabled BOOLEAN DEFAULT FALSE;`,
+        `ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS client_type VARCHAR(50) DEFAULT 'web';`
       ];
 
       for (const sql of migrations) {
@@ -223,6 +225,9 @@ const db = {
         if (!userCols.includes('bio')) sqliteDb.exec("ALTER TABLE users ADD COLUMN bio TEXT;");
         if (!userCols.includes('birthdate')) sqliteDb.exec("ALTER TABLE users ADD COLUMN birthdate TEXT;");
         if (!userCols.includes('badge')) sqliteDb.exec("ALTER TABLE users ADD COLUMN badge TEXT;");
+        if (!userCols.includes('app_notifications_enabled')) sqliteDb.exec("ALTER TABLE users ADD COLUMN app_notifications_enabled INTEGER DEFAULT 0;");
+        const pushCols = sqliteDb.prepare("PRAGMA table_info(push_subscriptions);").all().map(c => c.name);
+        if (!pushCols.includes('client_type')) sqliteDb.exec("ALTER TABLE push_subscriptions ADD COLUMN client_type TEXT DEFAULT 'web';");
       } catch (err) {
         // Уже есть
       }

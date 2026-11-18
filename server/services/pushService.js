@@ -45,7 +45,7 @@ const pushService = {
     return publicKey;
   },
 
-  async saveSubscription(userId, subscription) {
+  async saveSubscription(userId, subscription, clientType = 'web') {
     if (!subscription || !subscription.endpoint || !subscription.keys) {
       throw new Error('Некорректный объект подписки push');
     }
@@ -54,12 +54,28 @@ const pushService = {
     const { p256dh, auth } = keys;
 
     await db.run(`
-      INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth
-    `, [Number(userId), endpoint, p256dh, auth]);
+      INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, client_type)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(endpoint) DO UPDATE SET 
+        user_id = excluded.user_id, 
+        p256dh = excluded.p256dh, 
+        auth = excluded.auth,
+        client_type = excluded.client_type
+    `, [Number(userId), endpoint, p256dh, auth, clientType]);
 
     return true;
+  },
+
+  async setAppNotificationsEnabled(userId, enabled) {
+    if (!userId) return;
+    await db.run('UPDATE users SET app_notifications_enabled = ? WHERE id = ?', [
+      enabled ? 1 : 0, 
+      Number(userId)
+    ]);
+    if (enabled) {
+      // Автоматически очищаем подписки браузера с мобильного телефона, чтобы не задваивать уведомления
+      await db.run("DELETE FROM push_subscriptions WHERE user_id = ? AND client_type = 'mobile_web'", [Number(userId)]);
+    }
   },
 
   async removeSubscription(endpoint) {
@@ -70,9 +86,19 @@ const pushService = {
   async sendPushToUser(userId, payload) {
     if (!userId) return;
     try {
-      const subs = await db.all(
-        'SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?', 
-        [Number(userId)]
+      const user = await db.get('SELECT app_notifications_enabled FROM users WHERE id = ?', [Number(userId)]);
+      const appEnabled = Boolean(user && (user.app_notifications_enabled === 1 || user.app_notifications_enabled === true));
+
+      let sql = 'SELECT id, endpoint, p256dh, auth, client_type FROM push_subscriptions WHERE user_id = ?';
+      const params = [Number(userId)];
+
+      // Если у пользователя включены уведомления в установленном мобильном приложении,
+      // не отправляем пуши в мобильный браузер этого же телефона!
+      if (appEnabled) {
+        sql += " AND (client_type IS NULL OR client_type != 'mobile_web')";
+      }
+
+      const subs = await db.all(sql, params);
       );
 
       if (!subs || subs.length === 0) return;
