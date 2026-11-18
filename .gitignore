@@ -6,6 +6,9 @@ client/dist/
 .env
 server/.env
 server/database.sqlite*
+server/firebase-service-account.json
+firebase-service-account.json
+server/fcm_minified.txt
 server/uploads/*
 !server/uploads/.gitkeep
 
