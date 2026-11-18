@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const pushService = require('../services/pushService');
 
 const router = express.Router();
 
@@ -171,6 +172,13 @@ router.post('/request', requireAuth, async (req, res) => {
       });
     }
 
+    pushService.sendPushToUser(targetUser.id, {
+      title: 'Новая заявка в друзья! 🔔',
+      body: `${req.user.username} хочет добавить вас в друзья`,
+      icon: req.user.avatar || '/favicon.svg',
+      data: { type: 'requests' }
+    });
+
     return res.json({
       message: `Заявка в друзья отправлена пользователю ${targetUser.username}`,
       status: 'pending',
@@ -228,6 +236,13 @@ router.post('/accept', requireAuth, async (req, res) => {
         friendshipId: friendship.id
       });
     }
+
+    pushService.sendPushToUser(otherUserId, {
+      title: 'Заявка принята! 🎉',
+      body: `${req.user.username} принял(а) вашу заявку в друзья!`,
+      icon: req.user.avatar || '/favicon.svg',
+      data: { type: 'friend', friend: req.user }
+    });
 
     return res.json({
       message: `Заявка принята! Теперь вы можете обмениваться картинками с ${otherUser.username}.`,

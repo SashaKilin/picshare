@@ -5,6 +5,7 @@ const fs = require('fs');
 const cloudinary = require('cloudinary').v2;
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const pushService = require('../services/pushService');
 
 const router = express.Router();
 
@@ -185,6 +186,28 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
         io.to(`user_${receiverId}`).emit('new_image', newImage);
         io.to(`user_${senderId}`).emit('new_image', newImage);
       }
+    }
+
+    // Отправка Web Push (работает даже если браузер/телефон полностью закрыты)
+    const pushPayload = {
+      title: groupId 
+        ? `Группа: сообщение от ${req.user.username}` 
+        : `Новое сообщение от ${req.user.username}`,
+      body: caption || (fileUrl ? 'Прислал(а) фото 📷' : 'Новое сообщение'),
+      icon: req.user.avatar || '/favicon.svg',
+      data: groupId 
+        ? { type: 'group', groupId } 
+        : { type: 'friend', friend: { id: senderId, username: req.user.username, avatar: req.user.avatar } }
+    };
+
+    if (groupId) {
+      groupMembers.forEach(m => {
+        if (Number(m.user_id) !== Number(senderId)) {
+          pushService.sendPushToUser(m.user_id, pushPayload);
+        }
+      });
+    } else if (receiverId) {
+      pushService.sendPushToUser(receiverId, pushPayload);
     }
 
     return res.status(201).json({

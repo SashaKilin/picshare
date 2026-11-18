@@ -16,6 +16,7 @@ import { EditProfileModal } from './components/EditProfileModal';
 import { CreateGroupModal } from './components/CreateGroupModal';
 import { GroupInfoModal } from './components/GroupInfoModal';
 import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
+import { subscribeUserToPush } from './utils/browserNotifications';
 import { 
   Images, 
   UserPlus, 
@@ -103,10 +104,31 @@ function MainApp() {
     window.addEventListener('picshare_open_friend', handleOpenFriend);
     window.addEventListener('picshare_open_requests', handleOpenRequests);
 
+    // Обработка клика по системному уведомлению из Service Worker (на мобильных)
+    const handleSwMessage = (event) => {
+      if (event.data?.type === 'PICSHARE_NOTIFICATION_CLICK') {
+        const { target, type, groupId, friend } = event.data.data || {};
+        if (type === 'group' || groupId) {
+          handleOpenGroup({ detail: { groupId: groupId || target } });
+        } else if (type === 'friend' || friend) {
+          handleOpenFriend({ detail: friend || target });
+        } else if (type === 'requests') {
+          handleOpenRequests();
+        }
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
     return () => {
       window.removeEventListener('picshare_open_group', handleOpenGroup);
       window.removeEventListener('picshare_open_friend', handleOpenFriend);
       window.removeEventListener('picshare_open_requests', handleOpenRequests);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
     };
   }, [groups]);
 
@@ -115,6 +137,7 @@ function MainApp() {
       loadFriends();
       loadGroups();
       loadRequestsCount();
+      subscribeUserToPush().catch(() => {});
     } else {
       setFriends([]);
       setGroups([]);

@@ -14,6 +14,7 @@ const friendsRoutes = require('./routes/friends');
 const imagesRoutes = require('./routes/images');
 const usersRoutes = require('./routes/users');
 const groupsRoutes = require('./routes/groups');
+const pushRoutes = require('./routes/push');
 
 const app = express();
 const server = http.createServer(app);
@@ -93,6 +94,7 @@ app.use('/api/friends', friendsRoutes);
 app.use('/api/images', imagesRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/groups', groupsRoutes);
+app.use('/api/push', pushRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

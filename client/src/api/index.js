@@ -88,4 +88,10 @@ export const api = {
 
   // Health
   getHealth: () => request('/health'),
+
+  // Web Push
+  getPushPublicKey: () => request('/push/public-key'),
+  subscribePush: (subscription) => request('/push/subscribe', { method: 'POST', body: { subscription } }),
+  unsubscribePush: (endpoint) => request('/push/unsubscribe', { method: 'POST', body: { endpoint } }),
+  testPush: () => request('/push/test', { method: 'POST' }),
 };

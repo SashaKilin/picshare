@@ -88,6 +88,15 @@ const db = {
           reply_to_id INTEGER,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          endpoint TEXT NOT NULL UNIQUE,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
       `);
 
       // 2. Накатываем миграции для уже существующих в БД таблиц
@@ -118,6 +127,7 @@ const db = {
           CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
           CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
           CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id, user_id);
+          CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
         `);
       } catch (e) {
         console.warn('Предупреждение при создании индексов PostgreSQL:', e.message);
@@ -193,6 +203,17 @@ const db = {
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
         CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
         CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id, user_id);
+
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          endpoint TEXT NOT NULL UNIQUE,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
       `);
 
       // Автоматическая миграция SQLite users (добавление banner, bio, birthdate, badge)

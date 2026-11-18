@@ -647,11 +647,14 @@ export function EditProfileModal({ isOpen, onClose, onProfileUpdated }) {
                 </p>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     sendBrowserNotification({
                       title: 'Проверка уведомлений PicShare 🔔',
                       body: 'Всё работает отлично! Вы будете получать сообщения, даже когда вкладка свернута.'
                     });
+                    try {
+                      await api.testPush();
+                    } catch (e) {}
                   }}
                   className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition active:scale-95"
                 >

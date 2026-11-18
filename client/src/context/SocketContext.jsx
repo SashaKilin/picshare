@@ -121,6 +121,7 @@ export function SocketProvider({ children }) {
         body: `${fromUser.username} хочет добавить вас в друзья`,
         icon: fromUser.avatar || '/favicon.svg',
         tag: `friend_req_${fromUser.id}`,
+        data: { type: 'requests' },
         onClick: () => {
           window.focus();
           window.dispatchEvent(new CustomEvent('picshare_open_requests'));
@@ -142,6 +143,7 @@ export function SocketProvider({ children }) {
         body: `${friend.username} теперь ваш друг! Теперь вы можете обмениваться картинками.`,
         icon: friend.avatar || '/favicon.svg',
         tag: `friend_acc_${friend.id}`,
+        data: { type: 'friend', friend },
         onClick: () => {
           window.focus();
           window.dispatchEvent(new CustomEvent('picshare_open_friend', { detail: friend }));
@@ -183,6 +185,9 @@ export function SocketProvider({ children }) {
             body: image.caption || (image.image_url ? 'Прислал(а) изображение' : 'Новое сообщение'),
             icon: image.sender_avatar || '/favicon.svg',
             tag: isGroup ? `group_${image.group_id}` : `friend_${senderId}`,
+            data: isGroup 
+              ? { type: 'group', groupId: image.group_id }
+              : { type: 'friend', friend: { id: senderId, username: image.sender_username, avatar: image.sender_avatar } },
             onClick: () => {
               window.focus();
               if (isGroup) {
