@@ -43,7 +43,7 @@ router.get('/my', requireAuth, async (req, res) => {
     // Если пользователь новый (0 паков), автоматически подключаем официальные паки
     const countRow = await db.get(`SELECT COUNT(*) as count FROM user_sticker_packs WHERE user_id = ?`, [userId]);
     if (Number(countRow?.count || 0) === 0) {
-      const officialPacks = await db.all(`SELECT id FROM sticker_packs WHERE is_official = TRUE OR is_official = 1`);
+      const officialPacks = await db.all(`SELECT id FROM sticker_packs WHERE is_official IS TRUE`);
       for (const p of officialPacks) {
         try {
           await db.run(`INSERT INTO user_sticker_packs (user_id, pack_id) VALUES (?, ?)`, [userId, p.id]);

@@ -244,7 +244,6 @@ const db = {
 
         CREATE INDEX IF NOT EXISTS idx_friendships_users ON friendships(user1_id, user2_id);
         CREATE INDEX IF NOT EXISTS idx_images_chat ON images(sender_id, receiver_id);
-        CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
         CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id, user_id);
 
         CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -353,6 +352,13 @@ const db = {
       } catch (migErr) {
         // Игнорируем
       }
+
+      try {
+        sqliteDb.exec(`
+          CREATE INDEX IF NOT EXISTS idx_images_group ON images(group_id);
+          CREATE INDEX IF NOT EXISTS idx_group_members ON group_members(group_id, user_id);
+        `);
+      } catch (idxErr) {}
 
       console.log('✅ Таблицы SQLite готовы (профили, чат, баннеры, группы)');
     }
