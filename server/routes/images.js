@@ -159,7 +159,7 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
     }
 
     const isSaved = Number(senderId) === Number(receiverId);
-    const initialIsRead = isSaved ? 1 : 0;
+    const initialIsRead = isSaved ? (db.isPg ? true : 1) : (db.isPg ? false : 0);
 
     const result = await db.run(`
       INSERT INTO images (sender_id, receiver_id, group_id, file_url, original_name, caption, file_size, reply_to_id, is_read) 
@@ -249,8 +249,8 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
 
       // Отмечаем входящие сообщения прочитанными
       await db.run(`
-        UPDATE images SET is_read = 1 
-        WHERE sender_id = ? AND receiver_id = ? AND (is_read = 0 OR is_read IS NULL)
+        UPDATE images SET is_read = TRUE 
+        WHERE sender_id = ? AND receiver_id = ? AND is_read IS NOT TRUE
       `, [friendId, myId]);
 
       const io = req.app.get('io');
@@ -333,8 +333,8 @@ router.post('/read/:friendId', requireAuth, async (req, res) => {
     const myId = req.user.id;
     const friendId = Number(req.params.friendId);
     await db.run(`
-      UPDATE images SET is_read = 1 
-      WHERE sender_id = ? AND receiver_id = ? AND (is_read = 0 OR is_read IS NULL)
+      UPDATE images SET is_read = TRUE 
+      WHERE sender_id = ? AND receiver_id = ? AND is_read IS NOT TRUE
     `, [friendId, myId]);
 
     const io = req.app.get('io');

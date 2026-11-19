@@ -61,12 +61,12 @@ router.get('/', requireAuth, async (req, res) => {
         ) AS last_is_read,
         (
           SELECT COUNT(*) FROM images 
-          WHERE sender_id = u.id AND receiver_id = ? AND (is_read = 0 OR is_read IS NULL)
+          WHERE sender_id = u.id AND receiver_id = ? AND is_read IS NOT TRUE
         ) AS unread_count
       FROM friendships f
       JOIN users u ON (u.id = CASE WHEN f.user1_id = ? THEN f.user2_id ELSE f.user1_id END)
       WHERE (f.user1_id = ? OR f.user2_id = ?) AND f.status = 'accepted'
-      ORDER BY (last_image_at IS NULL) ASC, last_image_at DESC, f.updated_at DESC
+      ORDER BY last_image_at DESC NULLS LAST, f.updated_at DESC
     `, [myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId]);
 
     return res.json({ friends: rows });
