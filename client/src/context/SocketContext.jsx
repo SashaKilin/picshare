@@ -51,6 +51,7 @@ export function SocketProvider({ children }) {
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [notification, setNotification] = useState(null);
   const [unreadMap, setUnreadMap] = useState({}); // { [friendId]: count }
+  const [typingUsers, setTypingUsers] = useState({}); // { [key]: { userId, username, groupId, timestamp } }
   const [activeFriendId, setActiveFriendId] = useState(null);
   const [activeGroupId, setActiveGroupId] = useState(null);
 
@@ -107,6 +108,30 @@ export function SocketProvider({ children }) {
       });
     });
 
+    // Индикатор набора текста ("Печатает...")
+    newSocket.on('user_typing', ({ userId, username, groupId }) => {
+      const key = groupId ? `group_${groupId}_${userId}` : `direct_${userId}`;
+      setTypingUsers((prev) => ({
+        ...prev,
+        [key]: {
+          userId: Number(userId),
+          username: username || 'Собеседник',
+          groupId: groupId ? Number(groupId) : null,
+          timestamp: Date.now()
+        }
+      }));
+    });
+
+    newSocket.on('user_stop_typing', ({ userId, groupId }) => {
+      const key = groupId ? `group_${groupId}_${userId}` : `direct_${userId}`;
+      setTypingUsers((prev) => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    });
+
     newSocket.on('new_friend_request', ({ fromUser }) => {
       playNotificationSound();
       setNotification({
@@ -154,6 +179,16 @@ export function SocketProvider({ children }) {
     newSocket.on('new_image', (image) => {
       const senderId = Number(image.sender_id);
       const isMe = senderId === Number(user.id);
+
+      // Снимаем статус "печатает" для отправителя при получении сообщения
+      const imgGroupId = image.group_id ? Number(image.group_id) : null;
+      const typingKey = imgGroupId ? `group_${imgGroupId}_${senderId}` : `direct_${senderId}`;
+      setTypingUsers((prev) => {
+        if (!prev[typingKey]) return prev;
+        const next = { ...prev };
+        delete next[typingKey];
+        return next;
+      });
 
       if (!isMe) {
         playNotificationSound();
@@ -238,6 +273,41 @@ export function SocketProvider({ children }) {
     };
   }, [user?.id]);
 
+  // Периодическая очистка устаревших индикаторов набора текста (TTL 4.5 сек)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setTypingUsers((prev) => {
+        let changed = false;
+        const next = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (now - v.timestamp < 4500) {
+            next[k] = v;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 1500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const sendTyping = (data) => {
+    if (socket && socket.connected) {
+      socket.emit('typing_start', {
+        ...data,
+        username: user?.username
+      });
+    }
+  };
+
+  const stopTyping = (data) => {
+    if (socket && socket.connected) {
+      socket.emit('typing_stop', data);
+    }
+  };
+
   const markAsRead = (friendId) => {
     if (!friendId) return;
     setUnreadMap((prev) => {
@@ -258,6 +328,9 @@ export function SocketProvider({ children }) {
       clearNotification,
       unreadMap,
       markAsRead,
+      typingUsers,
+      sendTyping,
+      stopTyping,
       activeFriendId,
       setActiveFriendId,
       activeGroupId,

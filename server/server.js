@@ -80,6 +80,60 @@ io.on('connection', (socket) => {
     }
   });
 
+  // События индикатора набора текста ("Печатает...")
+  socket.on('typing_start', async (data) => {
+    if (!socket.userId) return;
+    const { recipientId, groupId, username } = data || {};
+    const senderUsername = username || 'Собеседник';
+
+    if (groupId) {
+      try {
+        const members = await db.all('SELECT user_id FROM group_members WHERE group_id = ?', [groupId]);
+        members.forEach((m) => {
+          if (Number(m.user_id) !== Number(socket.userId)) {
+            io.to(`user_${m.user_id}`).emit('user_typing', {
+              userId: Number(socket.userId),
+              username: senderUsername,
+              groupId: Number(groupId)
+            });
+          }
+        });
+      } catch (err) {
+        console.error('[Socket typing group error]:', err.message);
+      }
+    } else if (recipientId) {
+      io.to(`user_${recipientId}`).emit('user_typing', {
+        userId: Number(socket.userId),
+        username: senderUsername,
+        recipientId: Number(recipientId)
+      });
+    }
+  });
+
+  socket.on('typing_stop', async (data) => {
+    if (!socket.userId) return;
+    const { recipientId, groupId } = data || {};
+
+    if (groupId) {
+      try {
+        const members = await db.all('SELECT user_id FROM group_members WHERE group_id = ?', [groupId]);
+        members.forEach((m) => {
+          if (Number(m.user_id) !== Number(socket.userId)) {
+            io.to(`user_${m.user_id}`).emit('user_stop_typing', {
+              userId: Number(socket.userId),
+              groupId: Number(groupId)
+            });
+          }
+        });
+      } catch (err) {}
+    } else if (recipientId) {
+      io.to(`user_${recipientId}`).emit('user_stop_typing', {
+        userId: Number(socket.userId),
+        recipientId: Number(recipientId)
+      });
+    }
+  });
+
   socket.on('disconnect', () => {
     if (socket.userId) {
       console.log(`[Socket] User ${socket.userId} disconnected`);
