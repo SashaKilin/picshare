@@ -107,6 +107,33 @@ const db = {
           device_name TEXT,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS sticker_packs (
+          id SERIAL PRIMARY KEY,
+          creator_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          name VARCHAR(255) NOT NULL UNIQUE,
+          title VARCHAR(255) NOT NULL,
+          cover_url TEXT,
+          is_official BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS stickers (
+          id SERIAL PRIMARY KEY,
+          pack_id INTEGER NOT NULL REFERENCES sticker_packs(id) ON DELETE CASCADE,
+          file_url TEXT NOT NULL,
+          emoji VARCHAR(20) DEFAULT '😊',
+          position INTEGER DEFAULT 0,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS user_sticker_packs (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          pack_id INTEGER NOT NULL REFERENCES sticker_packs(id) ON DELETE CASCADE,
+          installed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, pack_id)
+        );
       `);
 
       // 2. Накатываем миграции для уже существующих в БД таблиц
@@ -121,6 +148,7 @@ const db = {
         `ALTER TABLE images ALTER COLUMN file_url DROP NOT NULL;`,
         `ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;`,
         `ALTER TABLE images ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;`,
+        `ALTER TABLE images ADD COLUMN IF NOT EXISTS is_sticker BOOLEAN DEFAULT FALSE;`,
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS app_notifications_enabled BOOLEAN DEFAULT FALSE;`,
         `ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS client_type VARCHAR(50) DEFAULT 'web';`
       ];
@@ -240,6 +268,37 @@ const db = {
           FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_fcm_user ON fcm_tokens(user_id);
+
+        CREATE TABLE IF NOT EXISTS sticker_packs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          creator_id INTEGER,
+          name TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          cover_url TEXT,
+          is_official INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(creator_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS stickers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pack_id INTEGER NOT NULL,
+          file_url TEXT NOT NULL,
+          emoji TEXT DEFAULT '😊',
+          position INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(pack_id) REFERENCES sticker_packs(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS user_sticker_packs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          pack_id INTEGER NOT NULL,
+          installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, pack_id),
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY(pack_id) REFERENCES sticker_packs(id) ON DELETE CASCADE
+        );
       `);
 
       // Автоматическая миграция SQLite users (добавление banner, bio, birthdate, badge)
@@ -254,6 +313,7 @@ const db = {
         if (!pushCols.includes('client_type')) sqliteDb.exec("ALTER TABLE push_subscriptions ADD COLUMN client_type TEXT DEFAULT 'web';");
         const imageCols = sqliteDb.prepare("PRAGMA table_info(images);").all().map(c => c.name);
         if (!imageCols.includes('is_read')) sqliteDb.exec("ALTER TABLE images ADD COLUMN is_read INTEGER DEFAULT 0;");
+        if (!imageCols.includes('is_sticker')) sqliteDb.exec("ALTER TABLE images ADD COLUMN is_sticker INTEGER DEFAULT 0;");
       } catch (err) {
         // Уже есть
       }
@@ -296,6 +356,18 @@ const db = {
 
       console.log('✅ Таблицы SQLite готовы (профили, чат, баннеры, группы)');
     }
+
+    // Одноразовая очистка старых исторических непрочитанных сообщений, накопившихся до внедрения системы прочтений
+    try {
+      if (isPg) {
+        await pgPool.query(`UPDATE images SET is_read = TRUE WHERE is_read IS NOT TRUE AND created_at < NOW() - INTERVAL '1 day'`);
+      } else {
+        sqliteDb.exec(`UPDATE images SET is_read = 1 WHERE (is_read = 0 OR is_read IS NULL) AND created_at < datetime('now', '-1 day')`);
+      }
+    } catch (cleanErr) {}
+
+    // Инициализируем стартовые стикерпаки
+    await seedDefaultStickers();
   },
 
   async get(sql, params = []) {
@@ -327,5 +399,76 @@ const db = {
     }
   }
 };
+
+async function seedDefaultStickers() {
+  try {
+    const existing = await db.get(`SELECT id FROM sticker_packs LIMIT 1`);
+    if (existing) return;
+
+    console.log('📦 Инициализация стартовых официальных стикерпаков...');
+    const pack1 = await db.run(`
+      INSERT INTO sticker_packs (name, title, cover_url, is_official)
+      VALUES (?, ?, ?, ?)
+    `, ['pepe_classic', 'Легендарный Пепе', 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeKing', isPg ? true : 1]);
+    const p1Id = pack1.lastInsertRowid;
+
+    const pack2 = await db.run(`
+      INSERT INTO sticker_packs (name, title, cover_url, is_official)
+      VALUES (?, ?, ?, ?)
+    `, ['cute_cats', 'Крутые Котики', 'https://api.dicebear.com/7.x/bottts/svg?seed=CoolCat', isPg ? true : 1]);
+    const p2Id = pack2.lastInsertRowid;
+
+    const pack3 = await db.run(`
+      INSERT INTO sticker_packs (name, title, cover_url, is_official)
+      VALUES (?, ?, ?, ?)
+    `, ['pixel_heroes', 'Пиксельные Герои', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=PixelHero', isPg ? true : 1]);
+    const p3Id = pack3.lastInsertRowid;
+
+    const p1Stickers = [
+      { emoji: '😎', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeCool' },
+      { emoji: '❤️', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLove' },
+      { emoji: '😂', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLaugh' },
+      { emoji: '🔥', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeFire' },
+      { emoji: '👍', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLike' },
+      { emoji: '🤔', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeThink' },
+      { emoji: '🎉', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeParty' },
+      { emoji: '😴', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeSleep' }
+    ];
+
+    const p2Stickers = [
+      { emoji: '😻', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatHeart' },
+      { emoji: '😺', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatSmile' },
+      { emoji: '😹', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatLol' },
+      { emoji: '😼', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatBoss' },
+      { emoji: '😿', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatSad' },
+      { emoji: '🐾', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatPaw' }
+    ];
+
+    const p3Stickers = [
+      { emoji: '👾', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Invader' },
+      { emoji: '⚔️', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Knight' },
+      { emoji: '🧙‍♂️', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Wizard' },
+      { emoji: '🤖', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Cyborg' },
+      { emoji: '💎', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Diamond' },
+      { emoji: '🚀', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Rocket' }
+    ];
+
+    for (let i = 0; i < p1Stickers.length; i++) {
+      await db.run(`INSERT INTO stickers (pack_id, file_url, emoji, position) VALUES (?, ?, ?, ?)`,
+        [p1Id, p1Stickers[i].url, p1Stickers[i].emoji, i]);
+    }
+    for (let i = 0; i < p2Stickers.length; i++) {
+      await db.run(`INSERT INTO stickers (pack_id, file_url, emoji, position) VALUES (?, ?, ?, ?)`,
+        [p2Id, p2Stickers[i].url, p2Stickers[i].emoji, i]);
+    }
+    for (let i = 0; i < p3Stickers.length; i++) {
+      await db.run(`INSERT INTO stickers (pack_id, file_url, emoji, position) VALUES (?, ?, ?, ?)`,
+        [p3Id, p3Stickers[i].url, p3Stickers[i].emoji, i]);
+    }
+    console.log('✅ Стартовые стикерпаки успешно созданы!');
+  } catch (err) {
+    console.error('Ошибка инициализации стартовых стикеров:', err.message);
+  }
+}
 
 module.exports = db;

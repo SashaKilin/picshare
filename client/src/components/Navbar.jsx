@@ -7,7 +7,9 @@ import {
   LogOut, 
   LogIn, 
   LayoutGrid, 
-  MessageSquareHeart
+  MessageSquareHeart,
+  Server,
+  Smile
 } from 'lucide-react';
 
 export function Navbar({ 
@@ -15,6 +17,8 @@ export function Navbar({
   onOpenSearch, 
   onOpenRequests, 
   onOpenProfile,
+  onOpenServerSettings,
+  onOpenStickers,
   requestsCount = 0,
   activeView, 
   setActiveView 
@@ -28,15 +32,15 @@ export function Navbar({
         {/* Логотип */}
         <div 
           onClick={() => setActiveView('chat')} 
-          className="flex items-center gap-2 sm:gap-3 cursor-pointer select-none group shrink-0"
+          className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer select-none group shrink-0"
         >
           <img 
             src="/favicon.svg" 
             alt="PicShare" 
-            className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform shrink-0 object-contain" 
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform shrink-0 object-contain" 
           />
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5 font-bold text-base sm:text-lg tracking-tight text-white leading-tight">
+            <div className="flex items-center gap-1 font-bold text-base sm:text-lg tracking-tight text-white leading-tight">
               <span>PicShare</span>
             </div>
             <p className="text-[10px] sm:text-xs text-slate-400 hidden sm:block">Обмен картинками</p>
@@ -85,6 +89,16 @@ export function Navbar({
               <span className="hidden lg:inline ml-1.5">Найти друзей</span>
             </button>
 
+            {/* Стикеры и магазин стикерпаков */}
+            <button
+              onClick={onOpenStickers}
+              className="flex items-center justify-center w-9 h-9 sm:w-auto sm:px-3 sm:py-1.5 rounded-xl bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 text-xs sm:text-sm font-medium border border-purple-500/20 transition active:scale-95"
+              title="Стикеры и Магазин стикерпаков"
+            >
+              <Smile className="w-4 h-4 text-purple-400" />
+              <span className="hidden lg:inline ml-1.5">Стикеры</span>
+            </button>
+
             {/* Заявки в друзья */}
             <button
               onClick={onOpenRequests}
@@ -100,10 +114,10 @@ export function Navbar({
             </button>
 
             {/* Профиль пользователя */}
-            <div className="flex items-center gap-1.5 sm:gap-2.5 pl-1 sm:pl-2 border-l border-slate-800">
+            <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2 border-l border-slate-800 shrink-0">
               <button
                 onClick={() => onOpenProfile && onOpenProfile(user?.id)}
-                className="flex items-center gap-2 hover:opacity-85 transition group text-left cursor-pointer p-1 rounded-xl hover:bg-slate-800/50"
+                className="flex items-center gap-1.5 hover:opacity-85 transition group text-left cursor-pointer p-1 rounded-xl hover:bg-slate-800/50 shrink-0"
                 title="Мой профиль"
               >
                 <img
@@ -123,6 +137,17 @@ export function Navbar({
                 </div>
               </button>
 
+              {/* Настройки сервера (на мобильных доступны из профиля или экрана авторизации) */}
+              {onOpenServerSettings && (
+                <button
+                  onClick={onOpenServerSettings}
+                  className="hidden md:flex p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition shrink-0"
+                  title="Настройки сервера"
+                >
+                  <Server className="w-4 h-4" />
+                </button>
+              )}
+
               {/* Кнопка выхода */}
               <button
                 onClick={logout}
@@ -136,6 +161,15 @@ export function Navbar({
           </div>
         ) : (
           <div className="flex items-center gap-2">
+            {onOpenServerSettings && (
+              <button
+                onClick={onOpenServerSettings}
+                className="p-2 rounded-xl text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition"
+                title="Настройки сервера"
+              >
+                <Server className="w-4 h-4" />
+              </button>
+            )}
             <button
               onClick={onOpenAuth}
               className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs sm:text-sm font-semibold shadow-md transition"

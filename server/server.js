@@ -15,6 +15,7 @@ const imagesRoutes = require('./routes/images');
 const usersRoutes = require('./routes/users');
 const groupsRoutes = require('./routes/groups');
 const pushRoutes = require('./routes/push');
+const stickersRoutes = require('./routes/stickers');
 
 const app = express();
 const server = http.createServer(app);
@@ -58,12 +59,44 @@ io.use((socket, next) => {
   }
 });
 
+// Управление присутствием пользователей онлайн (поддержка нескольких вкладок/устройств)
+const userSockets = new Map(); // userId (Number) -> Set<socketId>
+
+function addUserSocket(userId, socketId) {
+  const numId = Number(userId);
+  if (!numId) return false;
+  if (!userSockets.has(numId)) {
+    userSockets.set(numId, new Set());
+  }
+  const set = userSockets.get(numId);
+  const wasOffline = set.size === 0;
+  set.add(socketId);
+  return wasOffline;
+}
+
+function removeUserSocket(userId, socketId) {
+  const numId = Number(userId);
+  if (!numId || !userSockets.has(numId)) return false;
+  const set = userSockets.get(numId);
+  set.delete(socketId);
+  if (set.size === 0) {
+    userSockets.delete(numId);
+    return true; // пользователь стал оффлайн на всех вкладках
+  }
+  return false;
+}
+
 io.on('connection', (socket) => {
   if (socket.userId) {
     const roomName = `user_${socket.userId}`;
     socket.join(roomName);
-    console.log(`[Socket] User ${socket.userId} joined room ${roomName}`);
-    io.emit('user_online', { userId: socket.userId });
+    const wentOnline = addUserSocket(socket.userId, socket.id);
+    if (wentOnline) {
+      console.log(`[Socket Online] User ${socket.userId} is now online`);
+      io.emit('user_online', { userId: socket.userId });
+    }
+    // Сразу отдаем новому клиенту полный список пользователей онлайн
+    socket.emit('online_users_list', { userIds: Array.from(userSockets.keys()) });
   }
 
   socket.on('authenticate', (token) => {
@@ -72,12 +105,20 @@ io.on('connection', (socket) => {
       socket.userId = Number(payload.id);
       const roomName = `user_${socket.userId}`;
       socket.join(roomName);
-      console.log(`[Socket Auth Event] User ${socket.userId} joined room ${roomName}`);
-      io.emit('user_online', { userId: socket.userId });
+      const wentOnline = addUserSocket(socket.userId, socket.id);
+      if (wentOnline) {
+        console.log(`[Socket Auth Event] User ${socket.userId} is now online`);
+        io.emit('user_online', { userId: socket.userId });
+      }
       socket.emit('authenticated', { userId: socket.userId });
+      socket.emit('online_users_list', { userIds: Array.from(userSockets.keys()) });
     } catch (err) {
       console.warn('[Socket Auth Error]:', err.message);
     }
+  });
+
+  socket.on('get_online_users', () => {
+    socket.emit('online_users_list', { userIds: Array.from(userSockets.keys()) });
   });
 
   // События индикатора набора текста ("Печатает...")
@@ -136,8 +177,11 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     if (socket.userId) {
-      console.log(`[Socket] User ${socket.userId} disconnected`);
-      io.emit('user_offline', { userId: socket.userId });
+      const wentOffline = removeUserSocket(socket.userId, socket.id);
+      if (wentOffline) {
+        console.log(`[Socket] User ${socket.userId} went offline on all sockets`);
+        io.emit('user_offline', { userId: socket.userId });
+      }
     }
   });
 });
@@ -149,6 +193,7 @@ app.use('/api/images', imagesRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/groups', groupsRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/stickers', stickersRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

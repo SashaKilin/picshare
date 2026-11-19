@@ -72,18 +72,21 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
     const receiverId = req.body.receiverId ? Number(req.body.receiverId) : null;
     const groupId = req.body.groupId ? Number(req.body.groupId) : null;
     const caption = (req.body.caption || '').trim();
+    const isSticker = req.body.isSticker === 'true' || req.body.isSticker === true;
 
     if (!receiverId && !groupId) {
       if (req.file) fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: 'Не указан получатель или группа' });
     }
 
-    // Должен быть либо текст сообщения, либо прикрепленная картинка
-    if (!req.file && !caption) {
-      return res.status(400).json({ error: 'Введите текст сообщения или прикрепите изображение' });
-    }
+    let fileUrl = req.body.fileUrl || null;
+    let originalName = isSticker ? 'sticker.webp' : null;
+    let fileSize = 0;
 
-    let groupMembers = [];
+    // Должен быть либо текст сообщения, либо прикрепленная картинка, либо стикер
+    if (!req.file && !caption && !fileUrl) {
+      return res.status(400).json({ error: 'Введите текст сообщения, прикрепите фото или выберите стикер' });
+    }
     if (groupId) {
       // Проверяем, что отправитель состоит в группе
       const membership = await db.get(
@@ -108,10 +111,6 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
         }
       }
     }
-
-    let fileUrl = null;
-    let originalName = null;
-    let fileSize = 0;
 
     // Если есть прикрепленный файл
     if (req.file) {
@@ -160,11 +159,12 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
 
     const isSaved = Number(senderId) === Number(receiverId);
     const initialIsRead = isSaved ? (db.isPg ? true : 1) : (db.isPg ? false : 0);
+    const stickerFlag = db.isPg ? (isSticker ? true : false) : (isSticker ? 1 : 0);
 
     const result = await db.run(`
-      INSERT INTO images (sender_id, receiver_id, group_id, file_url, original_name, caption, file_size, reply_to_id, is_read) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-    `, [senderId, receiverId, groupId, safeFileUrl, safeOriginalName, caption, fileSize, replyToId, initialIsRead]);
+      INSERT INTO images (sender_id, receiver_id, group_id, file_url, original_name, caption, file_size, reply_to_id, is_read, is_sticker) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+    `, [senderId, receiverId, groupId, safeFileUrl, safeOriginalName, caption, fileSize, replyToId, initialIsRead, stickerFlag]);
 
     const newImage = {
       id: result.lastInsertRowid,
@@ -178,6 +178,7 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       reply_to_id: replyToId,
       reply_to: replyToMessage,
       is_read: initialIsRead,
+      is_sticker: Boolean(isSticker),
       created_at: new Date().toISOString(),
       sender_username: req.user.username,
       sender_avatar: req.user.avatar
@@ -202,7 +203,7 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       title: groupId 
         ? `Группа: сообщение от ${req.user.username}` 
         : `Новое сообщение от ${req.user.username}`,
-      body: caption || (fileUrl ? 'Прислал(а) фото 📷' : 'Новое сообщение'),
+      body: isSticker ? 'Прислал(а) стикер 🎭' : (caption || (fileUrl ? 'Прислал(а) фото 📷' : 'Новое сообщение')),
       icon: req.user.avatar || '/favicon.svg',
       data: groupId 
         ? { type: 'group', groupId } 
@@ -270,6 +271,7 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
         img.file_size,
         img.reply_to_id,
         img.is_read,
+        img.is_sticker,
         img.created_at,
         u.username AS sender_username,
         u.avatar AS sender_avatar,
@@ -295,7 +297,9 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
       caption: r.caption,
       file_size: r.file_size,
       reply_to_id: r.reply_to_id,
+      is_sticker: Number(r.is_sticker) === 1 || r.is_sticker === true,
       is_read: Number(r.is_read) === 1 || r.is_read === true,
+      is_sticker: Number(r.is_sticker) === 1 || r.is_sticker === true,
       reply_to: r.reply_id ? {
         id: r.reply_id,
         username: r.reply_username,
@@ -387,6 +391,7 @@ router.get('/chat/group/:groupId', requireAuth, async (req, res) => {
         img.caption,
         img.file_size,
         img.reply_to_id,
+        img.is_sticker,
         img.created_at,
         u.username AS sender_username,
         u.avatar AS sender_avatar,
@@ -412,6 +417,7 @@ router.get('/chat/group/:groupId', requireAuth, async (req, res) => {
       caption: r.caption,
       file_size: r.file_size,
       reply_to_id: r.reply_to_id,
+      is_sticker: Number(r.is_sticker) === 1 || r.is_sticker === true,
       reply_to: r.reply_id ? {
         id: r.reply_id,
         username: r.reply_username,

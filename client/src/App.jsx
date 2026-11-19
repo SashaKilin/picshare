@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider, useSocket } from './context/SocketContext';
 import { api } from './api';
@@ -16,6 +16,7 @@ import { EditProfileModal } from './components/EditProfileModal';
 import { CreateGroupModal } from './components/CreateGroupModal';
 import { GroupInfoModal } from './components/GroupInfoModal';
 import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
+import { StickersModal } from './components/StickersModal';
 import { subscribeUserToPush } from './utils/browserNotifications';
 import { 
   Images, 
@@ -48,6 +49,36 @@ function MainApp() {
   const [lightboxImage, setLightboxImage] = useState(null);
   const [profileUserId, setProfileUserId] = useState(null);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [isStickersOpen, setIsStickersOpen] = useState(false);
+
+  const selectedFriendRef = useRef(selectedFriend);
+  useEffect(() => {
+    selectedFriendRef.current = selectedFriend;
+  }, [selectedFriend]);
+
+  const handleSelectFriend = (friend) => {
+    setSelectedGroup(null);
+    setSelectedFriend(friend);
+    if (friend?.id) {
+      setFriends((prev) =>
+        prev.map((f) => (Number(f.id) === Number(friend.id) ? { ...f, unread_count: 0 } : f))
+      );
+    }
+  };
+
+  // Слушатель для моментального сброса счетчика непрочитанных сообщений при открытии чата
+  useEffect(() => {
+    const handleFriendRead = (e) => {
+      const friendId = e.detail?.friendId;
+      if (friendId) {
+        setFriends((prev) =>
+          prev.map((f) => (Number(f.id) === Number(friendId) ? { ...f, unread_count: 0 } : f))
+        );
+      }
+    };
+    window.addEventListener('picshare_friend_read', handleFriendRead);
+    return () => window.removeEventListener('picshare_friend_read', handleFriendRead);
+  }, []);
 
   // Прямое открытие профиля по ссылке #profile/username
   useEffect(() => {
@@ -214,6 +245,7 @@ function MainApp() {
           ? Number(newImg.receiver_id)
           : Number(newImg.sender_id);
 
+        const isCurrentOpen = Number(selectedFriendRef.current?.id) === otherId;
         setFriends((prev) => {
           const idx = prev.findIndex((f) => Number(f.id) === otherId);
           if (idx === -1) return prev;
@@ -224,7 +256,7 @@ function MainApp() {
             last_file_url: newImg.file_url,
             last_sender_id: newImg.sender_id,
             last_is_read: newImg.is_read || (isMyMsg ? 0 : 1),
-            unread_count: isMyMsg ? (prev[idx].unread_count || 0) : ((prev[idx].unread_count || 0) + 1),
+            unread_count: (isMyMsg || isCurrentOpen) ? 0 : ((prev[idx].unread_count || 0) + 1),
             total_images: (prev[idx].total_images || 0) + (newImg.file_url ? 1 : 0)
           };
           const next = [...prev];
@@ -346,6 +378,7 @@ function MainApp() {
           onOpenSearch={() => setIsSearchOpen(true)}
           onOpenRequests={() => setIsRequestsOpen(true)}
           onOpenProfile={(id) => setProfileUserId(id)}
+          onOpenStickers={() => setIsStickersOpen(true)}
           requestsCount={requestsCount}
           activeView={activeView}
           setActiveView={setActiveView}
@@ -358,8 +391,7 @@ function MainApp() {
           {activeView === 'feed' ? (
             <FeedView
               onSelectFriend={(friend) => {
-                setSelectedGroup(null);
-                setSelectedFriend(friend);
+                handleSelectFriend(friend);
                 setActiveView('chat');
               }}
               onOpenLightbox={(img) => setLightboxImage(img)}
@@ -373,10 +405,7 @@ function MainApp() {
                 groups={groups}
                 selectedFriend={selectedFriend}
                 selectedGroup={selectedGroup}
-                onSelectFriend={(friend) => {
-                  setSelectedGroup(null);
-                  setSelectedFriend(friend);
-                }}
+                onSelectFriend={handleSelectFriend}
                 onSelectGroup={(grp) => {
                   setSelectedFriend(null);
                   setSelectedGroup(grp);
@@ -400,6 +429,7 @@ function MainApp() {
                     onOpenLightbox={(img) => setLightboxImage(img)}
                     onOpenProfile={(id) => setProfileUserId(id)}
                     onOpenGroupInfo={(grp) => setGroupInfoModalId(grp.id)}
+                    onOpenStickerStore={() => setIsStickersOpen(true)}
                     onBack={() => {
                       setSelectedFriend(null);
                       setSelectedGroup(null);
@@ -518,8 +548,7 @@ function MainApp() {
         onClose={() => setIsSearchOpen(false)}
         onOpenProfile={(id) => setProfileUserId(id)}
         onSelectFriend={(friend) => {
-          setSelectedGroup(null);
-          setSelectedFriend(friend);
+          handleSelectFriend(friend);
           setActiveView('chat');
         }}
       />
@@ -583,8 +612,7 @@ function MainApp() {
         userIdOrUsername={profileUserId}
         onOpenEditProfile={() => setIsEditProfileOpen(true)}
         onSelectFriend={(friend) => {
-          setSelectedGroup(null);
-          setSelectedFriend(friend);
+          handleSelectFriend(friend);
           setActiveView('chat');
         }}
         onOpenLightbox={(img) => setLightboxImage(img)}
@@ -604,8 +632,7 @@ function MainApp() {
       <NotificationToast
         onOpenRequests={() => setIsRequestsOpen(true)}
         onSelectFriend={(friend) => {
-          setSelectedGroup(null);
-          setSelectedFriend(friend);
+          handleSelectFriend(friend);
           setActiveView('chat');
         }}
         onSelectGroup={(groupId) => {
@@ -624,6 +651,12 @@ function MainApp() {
             }).catch(console.error);
           }
         }}
+      />
+
+      {/* Каталог и менеджер стикерпаков (Telegram-style v3.0) */}
+      <StickersModal
+        isOpen={isStickersOpen}
+        onClose={() => setIsStickersOpen(false)}
       />
 
       {/* Однократный запрос на включение браузерных уведомлений */}
