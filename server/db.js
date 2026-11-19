@@ -86,6 +86,7 @@ const db = {
           caption TEXT,
           file_size INTEGER,
           reply_to_id INTEGER,
+          is_read BOOLEAN DEFAULT FALSE,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -119,6 +120,7 @@ const db = {
         `ALTER TABLE images ALTER COLUMN receiver_id DROP NOT NULL;`,
         `ALTER TABLE images ALTER COLUMN file_url DROP NOT NULL;`,
         `ALTER TABLE images ALTER COLUMN original_name DROP NOT NULL;`,
+        `ALTER TABLE images ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;`,
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS app_notifications_enabled BOOLEAN DEFAULT FALSE;`,
         `ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS client_type VARCHAR(50) DEFAULT 'web';`
       ];
@@ -205,6 +207,7 @@ const db = {
           caption TEXT,
           file_size INTEGER,
           reply_to_id INTEGER,
+          is_read INTEGER DEFAULT 0,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
           FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -249,6 +252,8 @@ const db = {
         if (!userCols.includes('app_notifications_enabled')) sqliteDb.exec("ALTER TABLE users ADD COLUMN app_notifications_enabled INTEGER DEFAULT 0;");
         const pushCols = sqliteDb.prepare("PRAGMA table_info(push_subscriptions);").all().map(c => c.name);
         if (!pushCols.includes('client_type')) sqliteDb.exec("ALTER TABLE push_subscriptions ADD COLUMN client_type TEXT DEFAULT 'web';");
+        const imageCols = sqliteDb.prepare("PRAGMA table_info(images);").all().map(c => c.name);
+        if (!imageCols.includes('is_read')) sqliteDb.exec("ALTER TABLE images ADD COLUMN is_read INTEGER DEFAULT 0;");
       } catch (err) {
         // Уже есть
       }

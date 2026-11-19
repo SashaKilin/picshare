@@ -96,13 +96,16 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       }
       groupMembers = await db.all('SELECT user_id FROM group_members WHERE group_id = ?', [groupId]);
     } else {
-      // Отправлять можно только взаимным друзьям!
-      const areFriends = await checkAreFriends(senderId, receiverId);
-      if (!areFriends) {
-        if (req.file) fs.unlinkSync(req.file.path);
-        return res.status(403).json({
-          error: 'Отправлять сообщения можно только взаимным друзьям! Сначала добавьте друг друга в друзья.'
-        });
+      // Отправлять можно себе в «Избранное» или взаимным друзьям!
+      const isSelf = Number(senderId) === Number(receiverId);
+      if (!isSelf) {
+        const areFriends = await checkAreFriends(senderId, receiverId);
+        if (!areFriends) {
+          if (req.file) fs.unlinkSync(req.file.path);
+          return res.status(403).json({
+            error: 'Отправлять сообщения можно только взаимным друзьям! Сначала добавьте друг друга в друзья.'
+          });
+        }
       }
     }
 
@@ -155,10 +158,13 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       }
     }
 
+    const isSaved = Number(senderId) === Number(receiverId);
+    const initialIsRead = isSaved ? 1 : 0;
+
     const result = await db.run(`
-      INSERT INTO images (sender_id, receiver_id, group_id, file_url, original_name, caption, file_size, reply_to_id) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-    `, [senderId, receiverId, groupId, safeFileUrl, safeOriginalName, caption, fileSize, replyToId]);
+      INSERT INTO images (sender_id, receiver_id, group_id, file_url, original_name, caption, file_size, reply_to_id, is_read) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+    `, [senderId, receiverId, groupId, safeFileUrl, safeOriginalName, caption, fileSize, replyToId, initialIsRead]);
 
     const newImage = {
       id: result.lastInsertRowid,
@@ -171,6 +177,7 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
       file_size: fileSize,
       reply_to_id: replyToId,
       reply_to: replyToMessage,
+      is_read: initialIsRead,
       created_at: new Date().toISOString(),
       sender_username: req.user.username,
       sender_avatar: req.user.avatar
@@ -182,6 +189,8 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
         groupMembers.forEach(m => {
           io.to(`user_${m.user_id}`).emit('new_image', newImage);
         });
+      } else if (Number(receiverId) === Number(senderId)) {
+        io.to(`user_${senderId}`).emit('new_image', newImage);
       } else {
         io.to(`user_${receiverId}`).emit('new_image', newImage);
         io.to(`user_${senderId}`).emit('new_image', newImage);
@@ -206,7 +215,7 @@ router.post('/send', requireAuth, upload.single('image'), async (req, res) => {
           pushService.sendPushToUser(m.user_id, pushPayload);
         }
       });
-    } else if (receiverId) {
+    } else if (receiverId && Number(receiverId) !== Number(senderId)) {
       pushService.sendPushToUser(receiverId, pushPayload);
     }
 
@@ -228,12 +237,26 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
   try {
     const myId = req.user.id;
     const friendId = Number(req.params.friendId);
+    const isSelf = Number(myId) === Number(friendId);
 
-    const areFriends = await checkAreFriends(myId, friendId);
-    if (!areFriends) {
-      return res.status(403).json({
-        error: 'Доступ закрыт: переписка доступна только со взаимными друзьями'
-      });
+    if (!isSelf) {
+      const areFriends = await checkAreFriends(myId, friendId);
+      if (!areFriends) {
+        return res.status(403).json({
+          error: 'Доступ закрыт: переписка доступна только со взаимными друзьями'
+        });
+      }
+
+      // Отмечаем входящие сообщения прочитанными
+      await db.run(`
+        UPDATE images SET is_read = 1 
+        WHERE sender_id = ? AND receiver_id = ? AND (is_read = 0 OR is_read IS NULL)
+      `, [friendId, myId]);
+
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`user_${friendId}`).emit('messages_read', { readerId: myId });
+      }
     }
 
     const rows = await db.all(`
@@ -246,6 +269,7 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
         img.caption,
         img.file_size,
         img.reply_to_id,
+        img.is_read,
         img.created_at,
         u.username AS sender_username,
         u.avatar AS sender_avatar,
@@ -271,6 +295,7 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
       caption: r.caption,
       file_size: r.file_size,
       reply_to_id: r.reply_to_id,
+      is_read: Number(r.is_read) === 1 || r.is_read === true,
       reply_to: r.reply_id ? {
         id: r.reply_id,
         username: r.reply_username,
@@ -282,12 +307,44 @@ router.get('/chat/:friendId', requireAuth, async (req, res) => {
       sender_avatar: r.sender_avatar
     }));
 
-    const friend = await db.get('SELECT id, username, email, avatar FROM users WHERE id = ?', [friendId]);
+    let friend;
+    if (isSelf) {
+      friend = {
+        id: myId,
+        username: 'Избранное',
+        email: req.user.email || '',
+        avatar: null,
+        isSaved: true
+      };
+    } else {
+      friend = await db.get('SELECT id, username, email, avatar FROM users WHERE id = ?', [friendId]);
+    }
 
     return res.json({ friend, images });
   } catch (err) {
     console.error('Ошибка получения сообщений:', err);
     return res.status(500).json({ error: 'Не удалось загрузить историю сообщений' });
+  }
+});
+
+// 2.0. Отметить сообщения в диалоге как прочитанные
+router.post('/read/:friendId', requireAuth, async (req, res) => {
+  try {
+    const myId = req.user.id;
+    const friendId = Number(req.params.friendId);
+    await db.run(`
+      UPDATE images SET is_read = 1 
+      WHERE sender_id = ? AND receiver_id = ? AND (is_read = 0 OR is_read IS NULL)
+    `, [friendId, myId]);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${friendId}`).emit('messages_read', { readerId: myId });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Ошибка отметки о прочтении:', err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

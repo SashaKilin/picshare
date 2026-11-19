@@ -34,12 +34,40 @@ router.get('/', requireAuth, async (req, res) => {
           WHERE (sender_id = u.id AND receiver_id = ?) 
              OR (sender_id = ? AND receiver_id = u.id)
           ORDER BY id DESC LIMIT 1
-        ) AS last_image_at
+        ) AS last_image_at,
+        (
+          SELECT caption FROM images 
+          WHERE (sender_id = u.id AND receiver_id = ?) 
+             OR (sender_id = ? AND receiver_id = u.id)
+          ORDER BY id DESC LIMIT 1
+        ) AS last_caption,
+        (
+          SELECT file_url FROM images 
+          WHERE (sender_id = u.id AND receiver_id = ?) 
+             OR (sender_id = ? AND receiver_id = u.id)
+          ORDER BY id DESC LIMIT 1
+        ) AS last_file_url,
+        (
+          SELECT sender_id FROM images 
+          WHERE (sender_id = u.id AND receiver_id = ?) 
+             OR (sender_id = ? AND receiver_id = u.id)
+          ORDER BY id DESC LIMIT 1
+        ) AS last_sender_id,
+        (
+          SELECT is_read FROM images 
+          WHERE (sender_id = u.id AND receiver_id = ?) 
+             OR (sender_id = ? AND receiver_id = u.id)
+          ORDER BY id DESC LIMIT 1
+        ) AS last_is_read,
+        (
+          SELECT COUNT(*) FROM images 
+          WHERE sender_id = u.id AND receiver_id = ? AND (is_read = 0 OR is_read IS NULL)
+        ) AS unread_count
       FROM friendships f
       JOIN users u ON (u.id = CASE WHEN f.user1_id = ? THEN f.user2_id ELSE f.user1_id END)
       WHERE (f.user1_id = ? OR f.user2_id = ?) AND f.status = 'accepted'
-      ORDER BY last_image_at DESC NULLS LAST, f.updated_at DESC
-    `, [myId, myId, myId, myId, myId, myId, myId]);
+      ORDER BY (last_image_at IS NULL) ASC, last_image_at DESC, f.updated_at DESC
+    `, [myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId, myId]);
 
     return res.json({ friends: rows });
   } catch (err) {

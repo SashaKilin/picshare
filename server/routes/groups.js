@@ -18,11 +18,16 @@ router.get('/', requireAuth, async (req, res) => {
         g.creator_id,
         g.created_at,
         (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id) AS members_count,
-        (CASE WHEN g.creator_id = ? THEN 1 ELSE 0 END) AS is_creator
+        (CASE WHEN g.creator_id = ? THEN 1 ELSE 0 END) AS is_creator,
+        (SELECT created_at FROM images WHERE group_id = g.id ORDER BY id DESC LIMIT 1) AS last_message_at,
+        (SELECT caption FROM images WHERE group_id = g.id ORDER BY id DESC LIMIT 1) AS last_caption,
+        (SELECT file_url FROM images WHERE group_id = g.id ORDER BY id DESC LIMIT 1) AS last_file_url,
+        (SELECT sender_id FROM images WHERE group_id = g.id ORDER BY id DESC LIMIT 1) AS last_sender_id,
+        (SELECT u.username FROM images img JOIN users u ON u.id = img.sender_id WHERE img.group_id = g.id ORDER BY img.id DESC LIMIT 1) AS last_sender_username
       FROM groups g
       JOIN group_members gm ON gm.group_id = g.id
       WHERE gm.user_id = ?
-      ORDER BY g.created_at DESC
+      ORDER BY (last_message_at IS NULL) ASC, last_message_at DESC, g.created_at DESC
     `, [userId, userId]);
 
     return res.json({ groups });

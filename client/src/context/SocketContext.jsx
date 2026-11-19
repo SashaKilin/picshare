@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
-import { getAuthToken } from '../api';
+import { getAuthToken, api } from '../api';
 import { sendBrowserNotification } from '../utils/browserNotifications';
 
 const SocketContext = createContext(null);
@@ -245,6 +245,7 @@ export function SocketProvider({ children }) {
       delete next[Number(friendId)];
       return next;
     });
+    api.markChatRead(friendId).catch(() => {});
   };
 
   const clearNotification = () => setNotification(null);
