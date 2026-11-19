@@ -27,7 +27,7 @@ router.get('/', requireAuth, async (req, res) => {
       FROM groups g
       JOIN group_members gm ON gm.group_id = g.id
       WHERE gm.user_id = ?
-      ORDER BY (last_message_at IS NULL) ASC, last_message_at DESC, g.created_at DESC
+      ORDER BY last_message_at DESC NULLS LAST, g.created_at DESC
     `, [userId, userId]);
 
     return res.json({ groups });
