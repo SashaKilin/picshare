@@ -408,70 +408,83 @@ const db = {
 
 async function seedDefaultStickers() {
   try {
-    const existing = await db.get(`SELECT id FROM sticker_packs LIMIT 1`);
-    if (existing) return;
-
-    console.log('📦 Инициализация стартовых официальных стикерпаков...');
-    const pack1 = await db.run(`
-      INSERT INTO sticker_packs (name, title, cover_url, is_official)
-      VALUES (?, ?, ?, ?)
-    `, ['pepe_classic', 'Легендарный Пепе', 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeKing', isPg ? true : 1]);
-    const p1Id = pack1.lastInsertRowid;
-
-    const pack2 = await db.run(`
-      INSERT INTO sticker_packs (name, title, cover_url, is_official)
-      VALUES (?, ?, ?, ?)
-    `, ['cute_cats', 'Крутые Котики', 'https://api.dicebear.com/7.x/bottts/svg?seed=CoolCat', isPg ? true : 1]);
-    const p2Id = pack2.lastInsertRowid;
-
-    const pack3 = await db.run(`
-      INSERT INTO sticker_packs (name, title, cover_url, is_official)
-      VALUES (?, ?, ?, ?)
-    `, ['pixel_heroes', 'Пиксельные Герои', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=PixelHero', isPg ? true : 1]);
-    const p3Id = pack3.lastInsertRowid;
-
-    const p1Stickers = [
-      { emoji: '😎', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeCool' },
-      { emoji: '❤️', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLove' },
-      { emoji: '😂', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLaugh' },
-      { emoji: '🔥', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeFire' },
-      { emoji: '👍', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLike' },
-      { emoji: '🤔', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeThink' },
-      { emoji: '🎉', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeParty' },
-      { emoji: '😴', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeSleep' }
+    const packsData = [
+      {
+        name: 'pepe_classic',
+        title: 'Легендарный Пепе',
+        cover_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeKing',
+        stickers: [
+          { emoji: '😎', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeCool' },
+          { emoji: '❤️', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLove' },
+          { emoji: '😂', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLaugh' },
+          { emoji: '🔥', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeFire' },
+          { emoji: '👍', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeLike' },
+          { emoji: '🤔', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeThink' },
+          { emoji: '🎉', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeParty' },
+          { emoji: '😴', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=PepeSleep' }
+        ]
+      },
+      {
+        name: 'cute_cats',
+        title: 'Крутые Котики',
+        cover_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CoolCat',
+        stickers: [
+          { emoji: '😻', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatHeart' },
+          { emoji: '😺', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatSmile' },
+          { emoji: '😹', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatLol' },
+          { emoji: '😼', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatBoss' },
+          { emoji: '😿', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatSad' },
+          { emoji: '🐾', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatPaw' }
+        ]
+      },
+      {
+        name: 'pixel_heroes',
+        title: 'Пиксельные Герои',
+        cover_url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=PixelHero',
+        stickers: [
+          { emoji: '👾', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Invader' },
+          { emoji: '⚔️', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Knight' },
+          { emoji: '🧙‍♂️', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Wizard' },
+          { emoji: '🤖', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Cyborg' },
+          { emoji: '💎', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Diamond' },
+          { emoji: '🚀', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Rocket' }
+        ]
+      }
     ];
 
-    const p2Stickers = [
-      { emoji: '😻', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatHeart' },
-      { emoji: '😺', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatSmile' },
-      { emoji: '😹', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatLol' },
-      { emoji: '😼', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatBoss' },
-      { emoji: '😿', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatSad' },
-      { emoji: '🐾', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=CatPaw' }
-    ];
+    for (const p of packsData) {
+      let pack = await db.get(`SELECT id FROM sticker_packs WHERE name = ?`, [p.name]);
+      let packId = pack ? pack.id : null;
 
-    const p3Stickers = [
-      { emoji: '👾', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Invader' },
-      { emoji: '⚔️', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Knight' },
-      { emoji: '🧙‍♂️', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Wizard' },
-      { emoji: '🤖', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Cyborg' },
-      { emoji: '💎', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Diamond' },
-      { emoji: '🚀', url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Rocket' }
-    ];
+      if (!packId) {
+        if (isPg) {
+          const res = await pgPool.query(
+            `INSERT INTO sticker_packs (name, title, cover_url, is_official) VALUES ($1, $2, $3, $4) RETURNING id`,
+            [p.name, p.title, p.cover_url, true]
+          );
+          packId = res.rows[0].id;
+        } else {
+          const res = await db.run(
+            `INSERT INTO sticker_packs (name, title, cover_url, is_official) VALUES (?, ?, ?, 1)`,
+            [p.name, p.title, p.cover_url]
+          );
+          packId = res.lastInsertRowid;
+        }
+      }
 
-    for (let i = 0; i < p1Stickers.length; i++) {
-      await db.run(`INSERT INTO stickers (pack_id, file_url, emoji, position) VALUES (?, ?, ?, ?)`,
-        [p1Id, p1Stickers[i].url, p1Stickers[i].emoji, i]);
+      if (packId) {
+        const countRow = await db.get(`SELECT COUNT(*) as count FROM stickers WHERE pack_id = ?`, [packId]);
+        if (Number(countRow?.count || 0) === 0) {
+          for (let i = 0; i < p.stickers.length; i++) {
+            await db.run(
+              `INSERT INTO stickers (pack_id, file_url, emoji, position) VALUES (?, ?, ?, ?)`,
+              [packId, p.stickers[i].url, p.stickers[i].emoji, i]
+            );
+          }
+        }
+      }
     }
-    for (let i = 0; i < p2Stickers.length; i++) {
-      await db.run(`INSERT INTO stickers (pack_id, file_url, emoji, position) VALUES (?, ?, ?, ?)`,
-        [p2Id, p2Stickers[i].url, p2Stickers[i].emoji, i]);
-    }
-    for (let i = 0; i < p3Stickers.length; i++) {
-      await db.run(`INSERT INTO stickers (pack_id, file_url, emoji, position) VALUES (?, ?, ?, ?)`,
-        [p3Id, p3Stickers[i].url, p3Stickers[i].emoji, i]);
-    }
-    console.log('✅ Стартовые стикерпаки успешно созданы!');
+    console.log('✅ Стартовые стикерпаки и стикеры успешно проверены и заполнены!');
   } catch (err) {
     console.error('Ошибка инициализации стартовых стикеров:', err.message);
   }
